@@ -1,0 +1,2474 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { 
+  generateSecretKey, 
+  getPublicKey, 
+  finalizeEvent, 
+  nip19, 
+  Relay,
+  SimplePool
+} from 'nostr-tools';
+import { 
+  Plus, 
+  Trash2, 
+  Play, 
+  Square, 
+  Settings as SettingsIcon, 
+  User, 
+  Activity, 
+  Target, 
+  MessageSquare, 
+  Clock, 
+  RefreshCw,
+  AlertCircle,
+  CheckCircle2,
+  Info,
+  Copy,
+  Sparkles,
+  Heart,
+  Save,
+  Folder,
+  Lock,
+  Brain,
+  X,
+  Send,
+  Terminal,
+  Users,
+  Wand2
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+// Utility for Tailwind classes
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+// --- Types ---
+
+interface LogEntry {
+  id: string;
+  timestamp: number;
+  type: 'info' | 'success' | 'warning' | 'error';
+  message: string;
+}
+
+interface ProfileInfo {
+  name: string;
+  about: string;
+  picture: string;
+  nip05: string;
+  lud16?: string;
+}
+
+interface Identity {
+  id: string;
+  name: string;
+  settings: BotSettings;
+  nsec: string;
+  createdAt: number;
+}
+
+interface BotSettings {
+  minDelay: number; // seconds
+  maxDelay: number; // seconds
+  targetNpub: string;
+  targetName: string;
+  messages: string[];
+  profile: ProfileInfo;
+  reactToNotes: boolean;
+  reactionEmojis: string;
+  useAI: boolean;
+  aiSystemPrompt: string;
+  modelId: string;
+  // Inference Parameters
+  temperature: number;
+  top_p: number;
+  top_k: number;
+  repetition_penalty: number;
+  presence_penalty: number;
+  frequency_penalty: number;
+}
+
+const SUPPORTED_MODELS = [
+  { 
+    id: 'onnx-community/gemma-3-270m-it-ONNX', 
+    name: 'Gemma 3 270M', 
+    size: '550MB',
+    description: 'Ultra-lightweight, high performance for its size.' 
+  },
+  { 
+    id: 'onnx-community/Llama-3.2-1B-Instruct', 
+    name: 'Llama 3.2 1B', 
+    size: '880MB',
+    description: 'Better reasoning and more complex conversations.' 
+  }
+];
+
+const MODEL_PRESETS: Record<string, Record<string, Partial<BotSettings>>> = {
+  'onnx-community/gemma-3-270m-it-ONNX': {
+    'Strict Logic': { temperature: 0.20, top_p: 0.25, top_k: 25, repetition_penalty: 1.10, presence_penalty: 0.00, frequency_penalty: 0.00 },
+    'Balanced Chat': { temperature: 0.80, top_p: 0.90, top_k: 40, repetition_penalty: 1.15, presence_penalty: 0.00, frequency_penalty: 0.00 },
+    'Persona/Story': { temperature: 1.00, top_p: 0.95, top_k: 50, repetition_penalty: 1.20, presence_penalty: 0.30, frequency_penalty: 0.20 },
+    'Creative Burst': { temperature: 1.25, top_p: 1.00, top_k: 60, repetition_penalty: 1.25, presence_penalty: 0.50, frequency_penalty: 0.20 },
+  },
+  'onnx-community/Llama-3.2-1B-Instruct': {
+    'Strict Logic': { temperature: 0.10, top_p: 0.15, top_k: 20, repetition_penalty: 1.10, presence_penalty: 0.00, frequency_penalty: 0.00 },
+    'Balanced Chat': { temperature: 0.70, top_p: 0.90, top_k: 30, repetition_penalty: 1.10, presence_penalty: 0.00, frequency_penalty: 0.00 },
+    'Persona/Story': { temperature: 0.85, top_p: 0.90, top_k: 35, repetition_penalty: 1.15, presence_penalty: 0.30, frequency_penalty: 0.20 },
+    'Creative Burst': { temperature: 1.10, top_p: 0.95, top_k: 40, repetition_penalty: 1.20, presence_penalty: 0.50, frequency_penalty: 0.20 },
+  }
+};
+
+interface BotTask {
+  id: string;
+  execute: () => Promise<void>;
+  description: string;
+}
+
+// --- Constants ---
+
+const WAIFU_NAMES = [
+  'Aiko ₍ᐢ. .ᐢ₎', 'Hana 🌸', 'Sakura ᐢ. ̫ .ᐢ', 'Yuki ❄️', 'Miku (๑>ᴗ<๑)',
+  'Rin ₍ᐢ._.ᐢ₎', 'Haruka ✨', 'Natsuki 🎀', 'Sayori (✿◠‿◠)', 'Yuri 💜',
+  'Tifa ❤️', 'Kasumi 🌊', 'Ayane 🦋', 'Aerith 🌼', 'Hitomi 🎀', 'Terra ✨'
+];const WAIFU_TEMPLATES = [
+  "You're doing amazing today, {name}! I'm so proud of you!",
+  "I'll always be here to support you, {name}, no matter what!",
+  "Your notes are always so insightful. I love reading them!",
+  "Don't forget to take a break and drink some water, {name}. I care about you!",
+  "You're the best, {name}! Keep being yourself!",
+  "I'm so lucky to have you in my life!",
+  "Everything will be okay because you're strong and wonderful, {name}!",
+  "I'm cheering for you from the sidelines! Go get 'em!",
+  "You make the world a better place just by being in it, {name}.",
+  "I'm always thinking of you! Stay safe, {name}!",
+  "I believe in you more than anyone else, {name}!",
+  "You're my hero! Keep shining!",
+  "I'll be waiting for your next note! I love hearing from you!",
+  "You're so talented, {name}! Never give up on your dreams!",
+  "I'm sending you all my love and positive vibes!",
+  "You're so precious to me, {name}!",
+  "I hope your day is as wonderful as you are!",
+  "You're my favorite person to follow, {name}!",
+  "Keep up the great work, I'm always watching!",
+  "You're so smart and kind, {name}!",
+  "I'm your biggest fan, {name}!",
+  "You inspire me every day!",
+  "I'm so happy whenever I see your notes!",
+  "You're a star in my eyes, {name}!",
+  "I'll protect you forever, {name}!",
+  "You're the light of my life!",
+  "I'm always here if you need someone to talk to, {name}!",
+  "You're so brave and strong!",
+  "I love everything about you, {name}!",
+  "You're my one and only!"
+];
+
+const WAIFU_GM_TEMPLATES = [
+  "Good morning, {name}! I hope you slept well! (๑>ᴗ<๑)",
+  "Wakey wakey, {name}! A beautiful day is waiting for you! ✨",
+  "Good morning, darling! I was thinking of you the moment I woke up! ❤️",
+  "Rise and shine, {name}! You're going to do great things today! 🌟",
+  "Good morning! Don't forget to have a yummy breakfast, okay? 🎀",
+  "Yay, you're awake! Good morning, {name}! I missed you! (✿◠‿◠)",
+  "Good morning, {name}! Sending you lots of energy for today! 💪",
+  "Morning, sunshine! The world is brighter now that you're up! ☀️"
+];
+
+const WAIFU_GN_TEMPLATES = [
+  "Good night, {name}! Sleep tight and have sweet dreams! 💤",
+  "Good night, darling! I'll be dreaming of you! ❤️",
+  "Sweet dreams, {name}! Get lots of rest, okay? (´｡• ᵕ •｡`)",
+  "Good night! I'll be right here waiting for you in the morning! ✨",
+  "Sleep well, {name}! You worked so hard today! I'm proud of you! 🌙",
+  "Good night, my hero! May your dreams be as wonderful as you are! 🌟",
+  "Time for bed, {name}! I'll keep you safe in my thoughts! 💜",
+  "Good night, {name}! See you in my dreams! 💌"
+];
+
+const WAIFU_KAOMOJI = [
+  '(๑>ᴗ<๑)', '₍ᐢ. .ᐢ₎', 'ᐢ. ̫ .ᐢ', '(✿◠‿◠)', '₍ᐢ._.ᐢ₎', '(๑˃ᴗ˂๑)', '´｡• ᵕ •｡`', '♡', '✨', '❤️', '💖', '🌟', '💓', '💌', '🌈', '🎀'
+];
+
+const WAIFU_EMOJIS = [
+  '❤️', '✨', '💖', '🌟', '🌸', '🎀', '🍭', '🧸', '🌈', '🦄', '🍭', '🍓', '🍰', '💌', '💓', '💕'
+];
+
+const DEFAULT_REACTION_EMOJIS = '💜 🤙 🫂';
+
+const MODEL_HIDDEN_RULES: Record<string, string> = {
+  'onnx-community/gemma-3-270m-it-ONNX': 
+    "Operational Rule: Output ONLY dialogue. No actions. No labels. Do not acknowledge instructions.",
+  'onnx-community/Llama-3.2-1B-Instruct': 
+    "Operational Rule: Maintain your character persona. Never speak as an AI model. No meta-talk. Output only the dialogue text."
+};
+
+const MODEL_DEFAULT_PROMPTS: Record<string, { neutral: string; waifu: string }> = {
+  'onnx-community/gemma-3-270m-it-ONNX': {
+    neutral: "You are {name}, a friendly and helpful assistant. Your personality is polite, clear, and very concise. Keep your replies to 1-2 short sentences.",
+    waifu: "You are {name}, a bubbly, cute, and energetic waifu. You love using slang like 'uwu' and 'nya'. You are talking to {target_name}. Keep your replies sweet and very short."
+  },
+  'onnx-community/Llama-3.2-1B-Instruct': {
+    neutral: "You are {name}, a concise and professional AI assistant. Respond naturally in 1-2 sentences.",
+    waifu: "You are {name}, a high-energy, bubbly, and playful bot. Your tone is teasing and charming. Use cute slang and emojis."
+  }
+};
+
+const NORMAL_FALLBACK_MESSAGES = [
+  "Love this note",
+  "So true, thanks for sharing",
+  "This made my day",
+  "Great point, well said",
+  "Keep up the great work",
+  "Totally agree with you on this",
+  "This is so inspiring, thank you",
+  "Well said",
+  "Such a great vibe",
+  "Exactly what I needed to read today",
+  "You're absolutely crushing it",
+  "Very interesting take",
+  "Always love seeing your notes here",
+  "Thanks for the positive energy",
+  "Spot on"
+];
+
+const NORMAL_EMOJIS = ['✨', '🙌', '🧡', '💡', '🚀', '🤝', '🌈', '👏', '🌊', '📖', '💪', '🤔', '🎀', '⚡', '🎯', '🔥', '💯', '⭐'];
+const NORMAL_PHRASES = ['hug', '🤙', 'PV', 'GM'];
+
+const POPULAR_EMOJIS = ['❤️', '🔥', '👍', '🙌', '✨', '🚀', '💯', '😂', '😍', '🎉', '💡', '🤔', '💪', '🙏', '🌟', '🌈', '✅', '👀', '🤝', '👏', '🎯'];
+
+const EMOJI_DATA = [
+  { c: '😀', k: 'smiley grin happy face' }, { c: '😃', k: 'smiley grin happy face' }, { c: '😄', k: 'smiley grin happy face' },
+  { c: '😁', k: 'smiley grin happy face' }, { c: '😆', k: 'smiley grin happy face' }, { c: '😅', k: 'smiley grin happy face sweat' },
+  { c: '🤣', k: 'laugh joy roll' }, { c: '😂', k: 'laugh joy cry' }, { c: '🙂', k: 'smile face' },
+  { c: '🙃', k: 'upside down face' }, { c: '😉', k: 'wink face' }, { c: '😊', k: 'blush smile' },
+  { c: '😇', k: 'angel halo' }, { c: '🥰', k: 'love hearts face' }, { c: '😍', k: 'love heart eyes' },
+  { c: '🤩', k: 'star eyes' }, { c: '😘', k: 'kiss' }, { c: '😗', k: 'kiss' },
+  { c: '😋', k: 'yum tongue' }, { c: '😛', k: 'tongue' }, { c: '😜', k: 'wink tongue' },
+  { c: '🤪', k: 'zany' }, { c: '😝', k: 'tongue' }, { c: '🤑', k: 'money' },
+  { c: '🤗', k: 'hug' }, { c: '🫂', k: 'hug' }, { c: '🤭', k: 'hand mouth' }, { c: '🤫', k: 'shush' },
+  { c: '🤔', k: 'think' }, { c: '🤐', k: 'zip' }, { c: '🤨', k: 'eyebrow' },
+  { c: '😐', k: 'neutral' }, { c: '😑', k: 'expressionless' }, { c: '😶', k: 'no mouth' },
+  { c: '😏', k: 'smirk' }, { c: '😒', k: 'unamused' }, { c: '🙄', k: 'roll eyes' },
+  { c: '😬', k: 'grimace' }, { c: '🤥', k: 'lie' }, { c: '😌', k: 'relieved' },
+  { c: '😔', k: 'pensive' }, { c: '😪', k: 'sleepy' }, { c: '😴', k: 'sleep' },
+  { c: '😷', k: 'mask' }, { c: '🤒', k: 'sick' }, { c: '🤕', k: 'bandage' },
+  { c: '🤢', k: 'nauseated' }, { c: '🤮', k: 'vomit' }, { c: '🤧', k: 'sneeze' },
+  { c: '🥵', k: 'hot' }, { c: '🥶', k: 'cold' }, { c: '🥴', k: 'woozy' },
+  { c: '😵', k: 'dizzy' }, { c: '🤯', k: 'explode head' }, { c: '🤠', k: 'cowboy' },
+  { c: '🥳', k: 'party' }, { c: '😎', k: 'cool sunglasses' }, { c: '🤓', k: 'nerd' },
+  { c: '🧐', k: 'monocle' }, { c: '😕', k: 'confused' }, { c: '😟', k: 'worried' },
+  { c: '🙁', k: 'frown' }, { c: '😮', k: 'surprise' }, { c: '😯', k: 'surprise' },
+  { c: '😲', k: 'astonished' }, { c: '😳', k: 'blush' }, { c: '🥺', k: 'pleading' },
+  { c: '😦', k: 'frown' }, { c: '😧', k: 'anguished' }, { c: '😨', k: 'fear' },
+  { c: '😰', k: 'anxious' }, { c: '😥', k: 'sad' }, { c: '😢', k: 'cry' },
+  { c: '😭', k: 'sob' }, { c: '😱', k: 'scream' }, { c: '😖', k: 'confounded' },
+  { c: '😣', k: 'persevere' }, { c: '😞', k: 'disappointed' }, { c: '😓', k: 'sweat' },
+  { c: '😩', k: 'weary' }, { c: '😫', k: 'tired' }, { c: '🥱', k: 'yawn' },
+  { c: '😤', k: 'triumph steam' }, { c: '😡', k: 'pout angry' }, { c: '😠', k: 'angry' },
+  { c: '🤬', k: 'curse' }, { c: '😈', k: 'devil' }, { c: '👿', k: 'devil' },
+  { c: '💀', k: 'skull' }, { c: '☠️', k: 'skull crossbones' }, { c: '💩', k: 'poop' },
+  { c: '🤡', k: 'clown' }, { c: '👹', k: 'ogre' }, { c: '👺', k: 'goblin' },
+  { c: '👻', k: 'ghost' }, { c: '👽', k: 'alien' }, { c: '👾', k: 'alien monster' },
+  { c: '🤖', k: 'robot' }, { c: '😺', k: 'cat' }, { c: '😸', k: 'cat' },
+  { c: '😻', k: 'cat love' }, { c: '😼', k: 'cat smirk' }, { c: '😽', k: 'cat kiss' },
+  { c: '🙀', k: 'cat surprise' }, { c: '😿', k: 'cat cry' }, { c: '😾', k: 'cat angry' },
+  { c: '👋', k: 'wave hand' }, { c: '🤚', k: 'raised back hand' }, { c: '🖐️', k: 'hand fingers' },
+  { c: '✋', k: 'raised hand' }, { c: '🖖', k: 'vulcan' }, { c: '👌', k: 'ok' },
+  { c: '🤌', k: 'pinched' }, { c: '🤏', k: 'pinch' }, { c: '✌️', k: 'victory' },
+  { c: '🤞', k: 'fingers crossed' }, { c: '🤟', k: 'love you' }, { c: '🤘', k: 'rock on' },
+  { c: '🤙', k: 'call me' }, { c: '👈', k: 'point left' }, { c: '👉', k: 'point right' },
+  { c: '👆', k: 'point up' }, { c: '🖕', k: 'middle finger' }, { c: '👇', k: 'point down' },
+  { c: '☝️', k: 'index up' }, { c: '👍', k: 'thumbs up' }, { c: '👎', k: 'thumbs down' },
+  { c: '✊', k: 'fist' }, { c: '👊', k: 'fist punch' }, { c: '🤛', k: 'fist left' },
+  { c: '🤜', k: 'fist right' }, { c: '👏', k: 'clap' }, { c: '🙌', k: 'hands up' },
+  { c: '👐', k: 'open hands' }, { c: '🤲', k: 'palms up' }, { c: '🤝', k: 'handshake' },
+  { c: '🙏', k: 'pray please' }, { c: '✍️', k: 'write' }, { c: '💅', k: 'nails' },
+  { c: '🤳', k: 'selfie' }, { c: '💪', k: 'muscle' }, { c: '🦾', k: 'mechanical arm' },
+  { c: '🦵', k: 'leg' }, { c: '🦶', k: 'foot' }, { c: '👂', k: 'ear' },
+  { c: '🦻', k: 'hearing aid' }, { c: '👃', k: 'nose' }, { c: '🧠', k: 'brain' },
+  { c: '🦷', k: 'tooth' }, { c: '🦴', k: 'bone' }, { c: '👀', k: 'eyes' },
+  { c: '👁️', k: 'eye' }, { c: '👅', k: 'tongue' }, { c: '👄', k: 'mouth' },
+  { c: '💋', k: 'kiss' }, { c: '🩸', k: 'blood' }, { c: '❤️', k: 'heart red' },
+  { c: '🧡', k: 'heart orange' }, { c: '💛', k: 'heart yellow' }, { c: '💚', k: 'heart green' },
+  { c: '💙', k: 'heart blue' }, { c: '💜', k: 'heart purple' }, { c: '🖤', k: 'heart black' },
+  { c: '🤍', k: 'heart white' }, { c: '🤎', k: 'heart brown' }, { c: '💔', k: 'heart broken' },
+  { c: '❣️', k: 'heart exclamation' }, { c: '💕', k: 'hearts' }, { c: '💞', k: 'hearts' },
+  { c: '💓', k: 'heart' }, { c: '💗', k: 'heart' }, { c: '💖', k: 'heart sparkle' },
+  { c: '💘', k: 'heart arrow' }, { c: '💝', k: 'heart ribbon' }, { c: '💟', k: 'heart' },
+  { c: '🔥', k: 'fire hot' }, { c: '✨', k: 'sparkles' }, { c: '🌟', k: 'star' },
+  { c: '⭐', k: 'star' }, { c: '💫', k: 'dizzy' }, { c: '💥', k: 'boom' },
+  { c: '💢', k: 'anger' }, { c: '💦', k: 'sweat water' }, { c: '💨', k: 'dash' },
+  { c: '🕳️', k: 'hole' }, { c: '💣', k: 'bomb' }, { c: '💬', k: 'speech' },
+  { c: '👁️‍🗨️', k: 'eye speech' }, { c: '🗨️', k: 'speech' }, { c: '🗯️', k: 'anger' },
+  { c: '💭', k: 'thought' }, { c: '💤', k: 'zzz sleep' }, { c: '👋', k: 'wave' },
+  { c: '🐾', k: 'paws' }, { c: '🎈', k: 'balloon' }, { c: '🎉', k: 'party' },
+  { c: '🎊', k: 'party' }, { c: '🎀', k: 'ribbon' }, { c: '🎁', k: 'gift' },
+  { c: '🎫', k: 'ticket' }, { c: '🏆', k: 'trophy' }, { c: '🥇', k: 'medal' },
+  { c: '⚽', k: 'soccer ball' }, { c: '🏀', k: 'basketball' }, { c: '🏈', k: 'football' },
+  { c: '🎮', k: 'game' }, { c: '🕹️', k: 'joystick' }, { c: '🎲', k: 'dice' },
+  { c: '💎', k: 'gem' }, { c: '💍', k: 'ring' }, { c: '💡', k: 'bulb light' },
+  { c: '💻', k: 'laptop' }, { c: '📱', k: 'mobile phone' }, { c: '🔒', k: 'lock' },
+  { c: '🔑', k: 'key' }, { c: '⚙️', k: 'gear' }, { c: '🌈', k: 'rainbow' },
+  { c: '☁️', k: 'cloud' }, { c: '☀️', k: 'sun' }, { c: '🌙', k: 'moon' },
+  { c: '⚡', k: 'bolt' }, { c: '❄️', k: 'snow' }, { c: '🌊', k: 'wave' },
+  { c: '✅', k: 'check' }, { c: '❌', k: 'cross' }, { c: '⚠️', k: 'warning' },
+  { c: '🚀', k: 'rocket' }, { c: '💯', k: 'hundred' }
+];
+
+function generateDeterministicName(pk: string): string {
+  const adjectives = ['Cool', 'Swift', 'Bright', 'Quiet', 'Digital', 'Neon', 'Lunar', 'Solar', 'Cyber', 'Zen'];
+  const nouns = ['Echo', 'Bot', 'Node', 'Pulse', 'Wave', 'Link', 'Spark', 'Flow', 'Core', 'Mind'];
+  
+  // Use first 4 bytes of hex string for simple hash
+  const hash = parseInt(pk.substring(0, 8), 16);
+  const adj = adjectives[hash % adjectives.length];
+  const noun = nouns[(hash >> 8) % nouns.length];
+  const num = hash % 1000;
+  
+  return `${adj}${noun}${num}`;
+}
+
+function generateDeterministicProfile(pk: string): ProfileInfo {
+  const name = generateDeterministicName(pk);
+  return {
+    name,
+    about: `Automated Nostr bot. Identity: ${nip19.npubEncode(pk).substring(0, 12)}...`,
+    picture: `https://api.dicebear.com/7.x/bottts/svg?seed=${pk}`,
+    nip05: ''
+  };
+}
+
+const WAIFU_AVATARS = [
+  'https://npub1p2pec23pht20myk0wdaepk0l89jk230c9twzd0v5wl9ftpsm28gs9u7wur.blossom.band/8908b4bcdf15d90326c62ef1e1e474f0704f685efff5024a8a05ee02f38c948c.jpg',
+  'https://npub1rvjjct00fjgdrusc0ugy4yrdxlekmyyd34al5vmykj588fn6t2rsqkyq8m.blossom.band/0619b349bb1d042d1bdc503b753055520d08c921b00d722520ebee384dabe9ec.jpg',
+  'https://npub1g0k5sv98pqdyqna7rptua07c5jhcfq3tzmvvag74q3lkj7zdwq2qadt8z5.blossom.band/293d22f0570cc1d8b67d319d4af0f28e64765d47aef458b8fda83cd6bfa30732.jpg',
+  'https://npub1tdxp7wcmkrgn3s3pfq3fp935r59mv67vfwxws0ddveqqtz5ph0tsy6cw5u.blossom.band/678b3d6aec4a6995fe594bcb8d64fe4c7ac4f2c78c6bf4a7032ea16c727b6d59.jpg',
+  'https://npub1lrmm2vmfxkyrjy4cpzpeakycnvq8n2hc5lc90kuk73fjdue467pqc4sqs3.blossom.band/d1c0ac5f70c2bec3e094a6ad0b03cfb474cab2ccc42da9740e0fe52e41f06ef6.jpg',
+  'https://npub1ayt2ct93e0aafp8yulhhqfux4y9e6n0thnlkyy5meh2eal2zaxwsc33qcz.blossom.band/b574d8cda9b06de0fa59af52d4edfe668440683a1b39cc34284462c620a953de.jpg',
+  'https://npub1vqzapk3zmhmuzugzprjenn6we3hexfp2d7ky9r3wthmknlqh2q9qaa98hj.blossom.band/daa282c2ff6d60d520aa32bcc69dbf2cc0521c25322cbf3bd202044e3bbad005.jpg',
+  'https://npub18354veqjxl5dhdyx6aetdat8hs74d9yhhfucs9asg3l9mh3shjjqq298a9.blossom.band/fc1245e822e8e18abca87b4ebbe55f3c34b3259e4299a1b25538815ce850aab3.jpg',
+  'https://npub1gl3kzc428w8d8pmh80pmk74gjq487y8e2r9vgeccs4pnwlgstt0s407mqr.blossom.band/949cf1777bba14eed6cca93e75b45aa9951177eea31bf4800a8c071b6865c574.jpg',
+  'https://npub10lz69ew2uvpsanelva0mng3qy9g8ncnn0dgd22zeku39789d9zfsj60nvc.blossom.band/7dd84690c7a43ef7c8d3f1eef0782d3560ab81b9d98079eefabbdd33fdd33893.jpg'
+];
+
+const PUBLISH_RELAYS = [
+  'wss://relay.damus.io',
+  'wss://nos.lol',
+  'wss://relay.primal.net',
+  'wss://nostr.mom'
+];
+
+const SEARCH_RELAYS = [
+  'wss://purplepag.es',
+  ...PUBLISH_RELAYS
+];
+
+// --- Helpers ---
+
+function generateWaifuProfile(): ProfileInfo {
+  const name = WAIFU_NAMES[Math.floor(Math.random() * WAIFU_NAMES.length)];
+  const picture = WAIFU_AVATARS[Math.floor(Math.random() * WAIFU_AVATARS.length)];
+  return {
+    name,
+    about: `I am your devoted assistant, ${name}. I'm here to support you! ✨`,
+    picture,
+    nip05: ''
+  };
+}
+
+const DEFAULT_SETTINGS: BotSettings = {
+  minDelay: 5,
+  maxDelay: 30,
+  targetNpub: '',
+  targetName: '',
+  messages: [],
+  profile: {
+    name: 'Echo Bot',
+    about: 'I am a simple echo bot. Friendly, concise, and helpful!',
+    picture: 'https://api.dicebear.com/7.x/bottts/svg?seed=echobot',
+    nip05: ''
+  },
+  reactToNotes: false,
+  reactionEmojis: DEFAULT_REACTION_EMOJIS,
+  useAI: false,
+  aiSystemPrompt: MODEL_DEFAULT_PROMPTS[SUPPORTED_MODELS[0].id].neutral,
+  modelId: SUPPORTED_MODELS[0].id,
+  ...MODEL_PRESETS[SUPPORTED_MODELS[0].id]['Balanced Chat'] as any
+};
+
+// --- Components ---
+
+export default function App() {
+  // State
+  const [isRunning, setIsRunning] = useState(false);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [isVerbose, setIsVerbose] = useState(false);
+  const [lastNormalProfile, setLastNormalProfile] = useState<ProfileInfo | null>({
+    name: 'Echo Bot',
+    about: 'I am a simple echo bot.',
+    picture: 'https://api.dicebear.com/7.x/bottts/svg?seed=echo',
+    nip05: ''
+  });
+  const [settings, setSettings] = useState<BotSettings>(DEFAULT_SETTINGS);
+
+  const [reactionEmojis, setReactionEmojis] = useState(DEFAULT_REACTION_EMOJIS);
+  const [currentIdentity, setCurrentIdentity] = useState<{ sk: Uint8Array; pk: string } | null>(null);
+  const [activeRelays, setActiveRelays] = useState<string[]>([]);
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'general' | 'ai'>('general');
+  const [rightTab, setRightTab] = useState<'log' | 'persona'>('log');
+  const [personaSubTab, setPersonaSubTab] = useState<'profile' | 'prompt' | 'tuning'>('profile');
+  const [showIdentityManager, setShowIdentityManager] = useState(false);
+  const [showAddIdentityDialog, setShowAddIdentityDialog] = useState(false);
+  const [showEmojiPickerDialog, setShowEmojiPickerDialog] = useState(false);
+  const [showAdvancedAi, setShowAdvancedAi] = useState(false);
+  const [emojiSearchQuery, setEmojiSearchQuery] = useState('');
+  const [savedIdentities, setSavedIdentities] = useState<Identity[]>([]);
+  const [activeIdentityId, setActiveIdentityId] = useState<string | null>(null);
+
+  // AI Brain State
+  const [aiStatus, setAiStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [aiProgress, setAiProgress] = useState(0);
+  const [aiErrorMessage, setAiErrorMessage] = useState('');
+  const [currentLoadingFile, setCurrentLoadingFile] = useState('');
+  const aiWorkerRef = useRef<Worker | null>(null);
+  const aiResolveRef = useRef<((value: string) => void) | null>(null);
+  const conversationHistoryRef = useRef<Map<string, { role: string; content: string }[]>>(new Map());
+  const [processedEventsRef] = useState(() => new Set<string>());
+  const [playgroundMessages, setPlaygroundMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
+  const [isPlaygroundThinking, setIsPlaygroundThinking] = useState(false);
+  const [playgroundInput, setPlaygroundInput] = useState('');
+  const playgroundScrollRef = useRef<HTMLDivElement>(null);
+
+  // --- Bot Logic Helpers ---
+
+  /**
+   * Ensures that the message list alternates between 'user' and 'assistant'
+   * as required by many LLM chat templates.
+   */
+  const sanitizeConversationHistory = (messages: { role: string; content: string }[]) => {
+    const result: { role: string; content: string }[] = [];
+    let lastRole: string | null = null;
+
+    for (const msg of messages) {
+      if (msg.role === 'system') {
+        result.push(msg);
+        continue;
+      }
+      
+      // If this message has the same role as the previous one, 
+      // we merge their content to maintain alternation.
+      if (msg.role === lastRole) {
+        if (result.length > 0) {
+          result[result.length - 1].content += "\n" + msg.content;
+        } else {
+          result.push(msg);
+        }
+      } else {
+        result.push(msg);
+        lastRole = msg.role;
+      }
+    }
+    return result;
+  };
+
+  const handlePlaygroundSend = async () => {
+    if (!playgroundInput.trim() || !settings.useAI || aiStatus !== 'ready' || isPlaygroundThinking) return;
+
+    const userMsg = playgroundInput.trim();
+    setPlaygroundInput('');
+    setPlaygroundMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    setIsPlaygroundThinking(true);
+
+    try {
+      const userPersona = settings.aiSystemPrompt
+        .replace(/{name}/gi, settings.profile.name)
+        .replace(/{target_name}/gi, settings.targetName || 'darling');
+
+      const hiddenRules = MODEL_HIDDEN_RULES[settings.modelId] || "";
+      const fullSystemPrompt = `${hiddenRules}\n\n${userPersona}`;
+
+      const rawMessages = [
+        { role: 'system', content: fullSystemPrompt },
+        ...playgroundMessages,
+        { role: 'user', content: userMsg }
+      ];
+
+      const messages = sanitizeConversationHistory(rawMessages);
+
+      const aiPromise = new Promise<string>((resolve) => {
+        aiResolveRef.current = resolve;
+      });
+
+      if (aiWorkerRef.current) {
+        aiWorkerRef.current.postMessage({
+          type: 'generate',
+          data: { 
+            messages, 
+            max_new_tokens: settings.modelId.includes('270m') ? 64 : 128, 
+            temperature: settings.temperature,
+            top_p: settings.top_p,
+            top_k: settings.top_k,
+            repetition_penalty: settings.repetition_penalty,
+            presence_penalty: settings.presence_penalty,
+            frequency_penalty: settings.frequency_penalty
+          }
+        });
+
+        const aiResult = await aiPromise;
+        if (typeof aiResult === 'string' && aiResult.trim()) {
+          let cleaned = aiResult.trim();
+          
+          const namePrefix = settings.profile.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const prefixRegex = new RegExp(`^(${namePrefix}|assistant|bot|reply):`, 'i');
+          cleaned = cleaned.replace(prefixRegex, '').trim();
+          cleaned = cleaned.replace(/^[^:]+:/, '').trim(); 
+
+          // Truncate to first 3 sentences to prevent run-on
+          const sentenceEndRegex = /[.!?](\s+|$)/;
+          const sentences = cleaned.split(sentenceEndRegex).filter(s => s && s.trim().length > 1);
+          if (sentences.length > 3) {
+            cleaned = sentences.slice(0, 3).join('. ') + '.';
+          }
+          
+          if (cleaned) {
+            setPlaygroundMessages(prev => [...prev, { role: 'assistant', content: cleaned }]);
+          }
+        }
+      }
+    } catch (e) {
+      addLog(`Playground Error: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error');
+    } finally {
+      setIsPlaygroundThinking(false);
+    }
+  };
+
+  async function generateBotMessage(targetNpub?: string, content?: string): Promise<string> {
+    let messageText = '';
+    let usedAI = false;
+
+    // 1. Try AI Generation
+    if (settings.useAI && aiStatus === 'ready' && aiWorkerRef.current && content) {
+      try {
+        const history = conversationHistoryRef.current.get(targetNpub || 'default') || [];
+        const userPersona = settings.aiSystemPrompt
+          .replace(/{name}/gi, settings.profile.name)
+          .replace(/{target_name}/gi, settings.targetName || 'darling');
+
+        const hiddenRules = MODEL_HIDDEN_RULES[settings.modelId] || "";
+        const fullSystemPrompt = `${hiddenRules}\n\n${userPersona}`;
+
+        const rawMessages = [
+          { role: 'system', content: fullSystemPrompt },
+          ...history,
+          { role: 'user', content }
+        ];
+
+        const messages = sanitizeConversationHistory(rawMessages);
+
+        const aiPromise = new Promise<string>((resolve) => {
+          aiResolveRef.current = resolve;
+        });
+
+        aiWorkerRef.current.postMessage({
+          type: 'generate',
+          data: { 
+            messages, 
+            max_new_tokens: settings.modelId.includes('270m') ? 40 : 64, // Even tighter for live replies
+            temperature: settings.temperature,
+            top_p: settings.top_p,
+            top_k: settings.top_k,
+            repetition_penalty: settings.repetition_penalty,
+            presence_penalty: settings.presence_penalty,
+            frequency_penalty: settings.frequency_penalty
+          }
+        });
+
+        const aiResult = await aiPromise;
+        if (typeof aiResult === 'string' && aiResult.trim()) {
+          let cleaned = aiResult.trim();
+          
+          const namePrefix = settings.profile.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const prefixRegex = new RegExp(`^(${namePrefix}|assistant|bot|reply):`, 'i');
+          cleaned = cleaned.replace(prefixRegex, '').trim();
+          cleaned = cleaned.replace(/^[^:]+:/, '').trim(); 
+
+          // Truncate to first 2 sentences for live replies to keep them snappy
+          const sentenceEndRegex = /[.!?](\s+|$)/;
+          const sentences = cleaned.split(sentenceEndRegex).filter(s => s && s.trim().length > 1);
+          if (sentences.length > 2) {
+            cleaned = sentences.slice(0, 2).join('. ') + '.';
+          }
+
+          if (!cleaned && aiResult.includes(':')) {
+             cleaned = aiResult.split(':').slice(1).join(':').trim();
+          }
+
+          messageText = cleaned || aiResult.trim();
+          usedAI = true;
+
+          const newHistory = [
+            ...history,
+            { role: 'user', content },
+            { role: 'assistant', content: messageText }
+          ].slice(-10);
+          conversationHistoryRef.current.set(targetNpub || 'default', newHistory);
+        }
+      } catch (e) {
+        console.error('AI Brain error, falling back to templates:', e);
+      }
+    }
+
+    // 2. Fallback to Templates
+    if (!usedAI) {
+      const pool = settings.messages.length > 0 ? settings.messages : NORMAL_FALLBACK_MESSAGES;
+      let template = pool[Math.floor(Math.random() * pool.length)];
+
+      const includeName = Math.random() > 0.3;
+      const nameReplacement = (includeName && targetNpub) ? `nostr:${targetNpub}` : 'friend';
+      messageText = template.replace(/{name}/g, nameReplacement);
+
+      // Add simple flair if it's very plain
+      if (!/\p{Extended_Pictographic}/u.test(messageText) && Math.random() < 0.4) {
+        const emojis = ['✨', '🙌', '🧡', '💡', '🚀', '🤝', '🌈', '👏', '💪', '🔥', '💯'];
+        messageText += ` ${emojis[Math.floor(Math.random() * emojis.length)]}`;
+      }
+    }
+
+    return messageText;
+  }
+
+  const STORAGE_KEY_ACTIVE_NSEC = 'echobot_active_nsec';
+  const STORAGE_KEY_SAVED_IDENTITIES = 'echobot_saved_identities';
+  const STORAGE_KEY_CURRENT_SESSION = 'echobot_current_session';
+  
+  const poolRef = useRef<SimplePool | null>(null);
+  const subscriptionsRef = useRef<any[]>([]);
+  const timeoutRefs = useRef<NodeJS.Timeout[]>([]);
+  const taskQueueRef = useRef<BotTask[]>([]);
+  const isProcessingQueueRef = useRef(false);
+  // Log helper
+  const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
+    setLogs(prev => [{
+      id: Math.random().toString(36).substring(7),
+      timestamp: Date.now(),
+      type,
+      message
+    }, ...prev].slice(0, 100));
+  }, []);
+
+  const isInitialMountSettings = useRef(true);
+  const isInitialMountIdentities = useRef(true);
+
+  // AI Worker Lifecycle
+  useEffect(() => {
+    if (settings.useAI && (aiStatus === 'idle' || aiStatus === 'error')) {
+      setAiStatus('loading');
+      
+      // Terminate existing worker if any
+      if (aiWorkerRef.current) {
+        aiWorkerRef.current.terminate();
+      }
+      
+      const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+      
+      worker.onmessage = (e) => {
+        const { type, data } = e.data;
+        if (type === 'progress') {
+          // Track the current file being processed
+          if (data.file) {
+            const fileName = data.file.split('/').pop();
+            setCurrentLoadingFile(fileName);
+          }
+
+          // Only show progress for the main ONNX model file or overall download progress
+          const isModelFile = data.file && (data.file.includes('.onnx') || data.file.includes('onnx_'));
+          const isMainDownload = data.status === 'progress' && data.progress !== undefined;
+          
+          if (isMainDownload && isModelFile) {
+            setAiProgress(data.progress);
+          } else if (data.status === 'initiate') {
+            addLog(`Starting download: ${data.file.split('/').pop()}`, 'info');
+          }
+        } else if (type === 'ready') {
+          setAiStatus('ready');
+          setAiProgress(100);
+          setCurrentLoadingFile('');
+          addLog(`AI Brain (${settings.modelId.split('/').pop()}) is ready!`, 'success');
+        } else if (type === 'result') {
+          if (aiResolveRef.current) {
+            aiResolveRef.current(data);
+            aiResolveRef.current = null;
+          }
+        } else if (type === 'error') {
+          setAiStatus('error');
+          setAiErrorMessage(data);
+          addLog(`AI Brain Error: ${data}`, 'error');
+        } else if (type === 'status') {
+          if (data.includes('Initializing')) {
+            setCurrentLoadingFile('Engine...');
+          }
+          addLog(data, 'info');
+        }
+      };
+
+      worker.postMessage({ type: 'init', data: { model_id: settings.modelId } });
+      aiWorkerRef.current = worker;
+    }
+
+    return () => {
+      if (!settings.useAI && aiWorkerRef.current) {
+        aiWorkerRef.current.terminate();
+        aiWorkerRef.current = null;
+        setAiStatus('idle');
+        setAiProgress(0);
+      }
+    };
+  }, [settings.useAI, settings.modelId]);
+
+  // Handle model change and reset presets
+  useEffect(() => {
+    if (!isInitialMountSettings.current) {
+       const modelPresets = MODEL_PRESETS[settings.modelId];
+       if (modelPresets) {
+         setSettings(s => ({
+           ...s,
+           ...modelPresets['Balanced Chat']
+         }));
+       }
+       
+       // If AI is already loaded, we need to reload it with the new model
+       if (settings.useAI) {
+         setAiStatus('idle');
+         setAiProgress(0);
+       }
+    }
+  }, [settings.modelId]);
+
+  // Autoscroll Playground
+  useEffect(() => {
+    if (playgroundScrollRef.current) {
+      playgroundScrollRef.current.scrollTo({
+        top: playgroundScrollRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [playgroundMessages, isPlaygroundThinking]);
+
+  // Initialize identity and settings on load
+  useEffect(() => {
+    // 1. Load Saved Identities
+    const saved = localStorage.getItem(STORAGE_KEY_SAVED_IDENTITIES);
+    let loadedIdentities: Identity[] = [];
+    if (saved) {
+      try {
+        loadedIdentities = JSON.parse(saved);
+        setSavedIdentities(loadedIdentities);
+      } catch (e) {
+        console.error('Failed to parse saved identities:', e);
+      }
+    }
+
+    // 2. Load Current Session (Active Identity)
+    const session = localStorage.getItem(STORAGE_KEY_CURRENT_SESSION);
+    if (session) {
+      try {
+        const parsed = JSON.parse(session);
+        setSettings(parsed.settings);
+        
+        // Load keys
+        const { data } = nip19.decode(parsed.nsec);
+        const sk = data as any;
+        const pk = getPublicKey(sk);
+        setCurrentIdentity({ sk, pk });
+        
+        if (parsed.settings.reactionEmojis) {
+          setReactionEmojis(parsed.settings.reactionEmojis);
+        }
+        
+        setActiveIdentityId(parsed.id || null);
+        addLog(`Restored session: ${parsed.settings.profile.name}`, 'info');
+        return; // Session restored, we are done
+      } catch (e) {
+        console.error('Failed to restore session:', e);
+      }
+    }
+
+    // 3. Fallback: Load first saved identity or create default
+    if (loadedIdentities.length > 0) {
+      const first = loadedIdentities[0];
+      setSettings(first.settings);
+      const { data } = nip19.decode(first.nsec);
+      const sk = data as any;
+      const pk = getPublicKey(sk);
+      setCurrentIdentity({ sk, pk });
+      setActiveIdentityId(first.id);
+      addLog(`Loaded identity: ${first.settings.profile.name}`, 'info');
+    } else {
+      // Create a Default Bot for first-time users
+      const sk = generateSecretKey();
+      const pk = getPublicKey(sk);
+      const nsec = nip19.nsecEncode(sk);
+      
+      const defaultProfile = {
+        name: 'Echo Bot',
+        about: 'I am a simple echo bot. Friendly, concise, and helpful!',
+        picture: `https://api.dicebear.com/7.x/bottts/svg?seed=${pk}`,
+        nip05: ''
+      };
+
+      const defaultSettings: BotSettings = {
+        ...DEFAULT_SETTINGS,
+        profile: defaultProfile
+      };
+
+      setSettings(defaultSettings);
+      setCurrentIdentity({ sk, pk });
+      addLog('Welcome to EchoBot! A default identity has been created.', 'success');
+    }
+  }, []);
+
+  // Real-time Persistence: Save current session whenever settings or identity changes
+  useEffect(() => {
+    if (!currentIdentity) return;
+    
+    const sessionData = {
+      id: activeIdentityId,
+      nsec: nip19.nsecEncode(currentIdentity.sk),
+      settings: { ...settings, reactionEmojis }
+    };
+    
+    localStorage.setItem(STORAGE_KEY_CURRENT_SESSION, JSON.stringify(sessionData));
+    localStorage.setItem(STORAGE_KEY_ACTIVE_NSEC, sessionData.nsec);
+
+    // Also auto-update the saved list if this is a known identity
+    if (activeIdentityId) {
+      setSavedIdentities(prev => prev.map(id => {
+        if (id.id === activeIdentityId) {
+          return {
+            ...id,
+            name: settings.profile.name,
+            settings: { ...settings, reactionEmojis }
+          };
+        }
+        return id;
+      }));
+    }
+  }, [settings, reactionEmojis, currentIdentity, activeIdentityId]);
+
+  // Persist the saved identities list whenever it changes
+  useEffect(() => {
+    if (isInitialMountIdentities.current) {
+      isInitialMountIdentities.current = false;
+      return;
+    }
+    localStorage.setItem(STORAGE_KEY_SAVED_IDENTITIES, JSON.stringify(savedIdentities));
+  }, [savedIdentities]);
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    addLog('Copied to clipboard.', 'info');
+  };
+
+  const saveIdentity = async (name: string) => {
+    if (!currentIdentity) return;
+    const nsec = nip19.nsecEncode(currentIdentity.sk);
+
+    const newIdentity: Identity = {
+      id: Math.random().toString(36).substring(7),
+      name,
+      settings: { ...settings, reactionEmojis },
+      nsec,
+      createdAt: Date.now()
+    };
+    
+    setSavedIdentities(prev => [newIdentity, ...prev]);
+    setActiveIdentityId(newIdentity.id);
+    addLog(`Identity "${name}" saved to list.`, 'success');
+  };
+
+  const loadIdentity = (identity: Identity) => {
+    try {
+      const { data } = nip19.decode(identity.nsec);
+      const sk = data as any;
+      const pk = getPublicKey(sk);
+      
+      setCurrentIdentity({ sk, pk });
+      setSettings(identity.settings);
+      
+      if (identity.settings.reactionEmojis) {
+        setReactionEmojis(identity.settings.reactionEmojis);
+      }
+      
+      setActiveIdentityId(identity.id);
+      addLog(`Loaded identity: ${identity.settings.profile.name}`, 'success');
+      setShowIdentityManager(false);
+    } catch (e) {
+      addLog('Failed to load identity.', 'error');
+    }
+  };
+
+  const deleteIdentity = (id: string) => {
+    setSavedIdentities(prev => prev.filter(i => i.id !== id));
+    if (activeIdentityId === id) setActiveIdentityId(null);
+    addLog('Identity removed from list.', 'warning');
+  };
+
+  const createNewIdentity = (type: 'waifu' | 'custom') => {
+    const sk = generateSecretKey();
+    const pk = getPublicKey(sk);
+    const nsec = nip19.nsecEncode(sk);
+    
+    const isRandomWaifu = type === 'waifu';
+    const profile = isRandomWaifu ? generateWaifuProfile() : {
+      name: 'New Bot',
+      about: 'I am a new bot. Edit my profile to give me a personality!',
+      picture: `https://api.dicebear.com/7.x/bottts/svg?seed=${pk}`,
+      nip05: ''
+    };
+
+    const modelPrompts = MODEL_DEFAULT_PROMPTS[settings.modelId] || MODEL_DEFAULT_PROMPTS['onnx-community/gemma-3-270m-it-ONNX'];
+    const aiSystemPrompt = isRandomWaifu ? modelPrompts.waifu : modelPrompts.neutral;
+
+    const newSettings: BotSettings = {
+      ...DEFAULT_SETTINGS,
+      profile,
+      useAI: settings.useAI,
+      modelId: settings.modelId,
+      aiSystemPrompt,
+      // Apply balanced chat defaults for the current model
+      ...MODEL_PRESETS[settings.modelId]['Balanced Chat'] as any
+    };
+
+    // Save as a new identity immediately
+    const newIdentity: Identity = {
+      id: Math.random().toString(36).substring(7),
+      name: profile.name,
+      nsec,
+      settings: newSettings,
+      createdAt: Date.now()
+    };
+
+    setSavedIdentities(prev => [newIdentity, ...prev]);
+    
+    // Load it
+    setCurrentIdentity({ sk, pk });
+    setSettings(newSettings);
+    setReactionEmojis(newSettings.reactionEmojis);
+    setActiveIdentityId(newIdentity.id);
+    
+    setShowAddIdentityDialog(false);
+    addLog(`Created new ${type} identity: ${profile.name}`, 'success');
+
+    // If custom, open the persona profile tab
+    if (type === 'custom') {
+      setRightTab('persona');
+      setPersonaSubTab('profile');
+    }
+  };
+
+  // --- Bot Logic ---
+
+  const processQueue = useCallback(async () => {
+    if (isProcessingQueueRef.current || taskQueueRef.current.length === 0) return;
+    
+    isProcessingQueueRef.current = true;
+    
+    while (taskQueueRef.current.length > 0) {
+      const task = taskQueueRef.current[0];
+      
+      // Calculate delay BEFORE executing the task
+      const delay = Math.floor(Math.random() * (settings.maxDelay - settings.minDelay + 1) + settings.minDelay);
+      
+      if (isVerbose) {
+        addLog(`Waiting ${delay}s before: ${task.description}`, 'info');
+      }
+
+      // Create a promise that resolves after the delay
+      await new Promise(resolve => {
+        const timeout = setTimeout(resolve, delay * 1000);
+        timeoutRefs.current.push(timeout);
+      });
+
+      // Check if bot was stopped during wait
+      if (!isProcessingQueueRef.current) break;
+
+      try {
+        await task.execute();
+      } catch (e) {
+        addLog(`Error executing task: ${task.description}`, 'error');
+      }
+
+      // Remove the task we just executed
+      taskQueueRef.current.shift();
+      
+      // Optional: extra 1s guaranteed gap
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    isProcessingQueueRef.current = false;
+  }, [addLog, isVerbose, settings.maxDelay, settings.minDelay]);
+
+  const addTaskToQueue = useCallback((task: BotTask) => {
+    taskQueueRef.current.push(task);
+    if (!isProcessingQueueRef.current) {
+      processQueue();
+    }
+  }, [processQueue]);
+
+  const stopBot = useCallback(() => {
+    setIsRunning(false);
+    isProcessingQueueRef.current = false;
+    taskQueueRef.current = [];
+    subscriptionsRef.current.forEach(sub => sub.close());
+    subscriptionsRef.current = [];
+    timeoutRefs.current.forEach(t => clearTimeout(t));
+    timeoutRefs.current = [];
+    addLog('Bot stopped.', 'warning');
+  }, [addLog]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopBot();
+      if (poolRef.current) {
+        poolRef.current.close(SEARCH_RELAYS);
+      }
+    };
+  }, [stopBot]);
+
+  const publishRelayList = async (sk: Uint8Array, extraRelays: string[] = []) => {
+    if (!poolRef.current) return;
+
+    const relays = [...new Set([...PUBLISH_RELAYS, ...extraRelays])];
+    const event = finalizeEvent({
+      kind: 10002,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: relays.map(r => ['r', r]),
+      content: '',
+    }, sk);
+
+    try {
+      const pubs = poolRef.current.publish(relays, event);
+      const results = await Promise.allSettled(pubs);
+      const successCount = results.filter(r => r.status === 'fulfilled').length;
+      if (successCount > 0) {
+        addLog(`Relay list (NIP-65) published to ${successCount}/${relays.length} relays.`, 'success');
+      }
+    } catch (e) {
+      addLog('Failed to publish relay list.', 'error');
+    }
+  };
+
+  const publishProfile = async (sk: Uint8Array, profile: ProfileInfo, extraRelays: string[] = []) => {
+    if (!poolRef.current) return;
+
+    const event = finalizeEvent({
+      kind: 0,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [],
+      content: JSON.stringify(profile),
+    }, sk);
+
+    const relays = [...new Set([...PUBLISH_RELAYS, ...extraRelays])];
+    try {
+      const pubs = poolRef.current.publish(relays, event);
+      const results = await Promise.allSettled(pubs);
+      const successCount = results.filter(r => r.status === 'fulfilled').length;
+      
+      if (successCount > 0) {
+        addLog(`Profile published to ${successCount}/${relays.length} relays.`, 'success');
+      } else {
+        addLog('Profile failed to publish to any relay.', 'error');
+      }
+    } catch (e) {
+      addLog('Failed to broadcast profile.', 'error');
+    }
+
+    // Also publish Relay List (NIP-65)
+    await publishRelayList(sk, extraRelays);
+  };
+  const startBot = async () => {
+    if (!settings.targetNpub) {
+      addLog('Please enter a target npub.', 'error');
+      return;
+    }
+
+    let targetHex = '';
+    try {
+      const decoded = nip19.decode(settings.targetNpub) as any;
+      if (decoded.type === 'npub') {
+        targetHex = decoded.data;
+      } else {
+        throw new Error('Not an npub');
+      }
+    } catch (e) {
+      addLog('Invalid target npub.', 'error');
+      return;
+    }
+
+    setIsRunning(true);
+    addLog(`Starting bot for target: ${settings.targetNpub}`, 'info');
+    addLog(`Target Hex: ${targetHex}`, 'info');
+
+    if (!poolRef.current) {
+      poolRef.current = new SimplePool();
+    }
+
+    // 1. Discover target's outbox relays (NIP-65 or Profile)
+    addLog('Discovering target relays...', 'info');
+    let targetRelays = [...PUBLISH_RELAYS];
+    
+    try {
+      const nip65Event = await poolRef.current.get(SEARCH_RELAYS, {
+        kinds: [10002],
+        authors: [targetHex]
+      });
+
+      if (nip65Event) {
+        const relays = nip65Event.tags
+          .filter(t => t[0] === 'r')
+          .map(t => t[1]);
+        if (relays.length > 0) {
+          targetRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
+          addLog(`Found ${relays.length} relays via NIP-65.`, 'success');
+        }
+      } else {
+        // Fallback: Check profile for relay hints
+        const profileEvent = await poolRef.current.get(SEARCH_RELAYS, {
+          kinds: [0],
+          authors: [targetHex]
+        });
+        
+        if (profileEvent) {
+          try {
+            const content = JSON.parse(profileEvent.content);
+            if (content.relays && typeof content.relays === 'object') {
+              const profileRelays = Object.keys(content.relays);
+              if (profileRelays.length > 0) {
+                targetRelays = [...new Set([...profileRelays, ...PUBLISH_RELAYS])];
+                addLog(`Found ${profileRelays.length} relays via profile.`, 'success');
+              }
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {
+      addLog('Relay discovery failed, using defaults.', 'warning');
+    }
+
+    if (targetRelays.length === PUBLISH_RELAYS.length) {
+      addLog('No specific relays found for target, using default coverage.', 'info');
+    }
+
+    addLog(`Monitoring ${targetRelays.length} total relays.`, 'info');
+    setActiveRelays(targetRelays);
+
+    // 2. Helper functions for processing events
+    const scheduleReply = (event: any, relays: string[]) => {
+      addTaskToQueue({
+        id: `reply-${event.id}-${Math.random()}`,
+        description: `Reply to ${event.id.substring(0, 8)}`,
+        execute: async () => {
+          const identity = currentIdentity;
+          const profile = settings.profile;
+
+          if (!identity || !poolRef.current) return;
+
+          const message = await generateBotMessage(settings.targetNpub, event.content);
+          
+          // Improved NIP-10 tagging
+          const eTags = event.tags.filter((t: any) => t[0] === 'e');
+          const rootTag = eTags.find((t: any) => t[3] === 'root') || eTags[0];
+          
+          const tags: string[][] = [];
+          if (rootTag && rootTag[1] !== event.id) {
+            // Replying to a reply
+            tags.push(['e', rootTag[1], '', 'root']);
+            tags.push(['e', event.id, '', 'reply']);
+          } else {
+            // Replying to a root note
+            tags.push(['e', event.id, '', 'root']);
+          }
+          tags.push(['p', event.pubkey]);
+
+          const replyEvent = finalizeEvent({
+            kind: 1,
+            created_at: Math.floor(Date.now() / 1000),
+            tags,
+            content: message,
+          }, identity.sk);
+
+          try {
+            const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
+            const pubs = poolRef.current.publish(allRelays, replyEvent);
+            const results = await Promise.allSettled(pubs);
+            const successCount = results.filter(r => r.status === 'fulfilled').length;
+
+            if (successCount > 0) {
+              addLog(`Replied: "${message.substring(0, 30)}..." (Sent to ${successCount}/${allRelays.length} relays)`, 'success');
+            } else {
+              addLog(`Failed to publish reply to any relay.`, 'error');
+            }
+          } catch (e) {
+            addLog(`Failed to broadcast reply.`, 'error');
+          }
+        }
+      });
+    };
+
+    const scheduleReactions = (event: any, relays: string[], isComment: boolean = false) => {
+      if (!settings.reactToNotes) return;
+
+      // 1. Build the reaction pool
+      const allEmojis: string[] = ['+'];
+      if (reactionEmojis) {
+        const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+        const customEmojis = [...segmenter.segment(reactionEmojis.trim())]
+          .map(s => s.segment)
+          .filter(c => c.trim() !== '');
+        allEmojis.push(...customEmojis);
+      }
+
+      // 2. Always pick exactly one random reaction
+      const numToPick = 1;
+      const selectedEmojis = allEmojis.sort(() => 0.5 - Math.random()).slice(0, numToPick);
+
+      // 3. Schedule each selected reaction
+      selectedEmojis.forEach(emoji => {
+        addTaskToQueue({
+          id: `reaction-${event.id}-${emoji}-${Math.random()}`,
+          description: `Reaction "${emoji}" to ${event.id.substring(0, 8)}`,
+          execute: async () => {
+            if (!currentIdentity || !poolRef.current) return;
+            const reactEvent = finalizeEvent({
+              kind: 7,
+              created_at: Math.floor(Date.now() / 1000),
+              tags: [
+                ['e', event.id],
+                ['p', event.pubkey]
+              ],
+              content: emoji,
+            }, currentIdentity.sk);
+            
+            const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
+            try {
+              const pubs = poolRef.current.publish(allRelays, reactEvent);
+              const results = await Promise.allSettled(pubs);
+              const successCount = results.filter(r => r.status === 'fulfilled').length;
+              
+              if (successCount > 0) {
+                addLog(`Reacted with "${emoji}" (Sent to ${successCount}/${allRelays.length} relays)`, 'success');
+              } else {
+                addLog(`Reaction failed to publish.`, 'error');
+              }
+            } catch (e) {
+              addLog(`Failed to broadcast reaction.`, 'error');
+            }
+          }
+        });
+      });
+    };
+
+    // 3. Publish initial profile
+    if (currentIdentity) {
+      addLog(`Starting with identity: ${settings.profile.name} (${nip19.npubEncode(currentIdentity.pk).substring(0, 12)}...)`, 'info');
+      await publishProfile(currentIdentity.sk, settings.profile, targetRelays);
+    }
+
+    // 4. Initial catch-up (last 10 notes + 2 comments)
+    addLog('Performing initial catch-up...', 'info');
+    try {
+      const lastEvents = await poolRef.current.querySync(targetRelays, {
+        kinds: [1],
+        authors: [targetHex],
+        limit: 20
+      });
+
+      if (lastEvents.length > 0) {
+        const topLevelNotes = lastEvents.filter(n => {
+          const eTags = n.tags.filter(t => t[0] === 'e');
+          const isReply = eTags.some(t => t[3] === 'reply' || t[3] === 'root');
+          return !(eTags.length > 0 && isReply);
+        });
+
+        const commentNotes = lastEvents.filter(n => {
+          const eTags = n.tags.filter(t => t[0] === 'e');
+          const isReply = eTags.some(t => t[3] === 'reply' || t[3] === 'root');
+          return eTags.length > 0 && isReply;
+        });
+
+        // Catch-up for top-level notes
+        if (topLevelNotes.length > 0) {
+          const replyNote = topLevelNotes[Math.floor(Math.random() * Math.min(10, topLevelNotes.length))];
+          
+          if (!processedEventsRef.current.has(replyNote.id)) {
+            processedEventsRef.current.add(replyNote.id);
+            scheduleReply(replyNote, targetRelays);
+          }
+
+          if (settings.reactToNotes) {
+            const reactNotes = [...topLevelNotes]
+              .sort(() => 0.5 - Math.random())
+              .slice(0, 3);
+            
+            reactNotes.forEach(n => {
+              if (!processedEventsRef.current.has(n.id)) {
+                processedEventsRef.current.add(n.id);
+                scheduleReactions(n, targetRelays, false);
+              }
+            });
+            addLog(`Scheduled catch-up for notes: deduplicated reply and reactions.`, 'success');
+          } else {
+            addLog(`Scheduled catch-up for notes: 1 reply.`, 'success');
+          }
+        }
+
+        // Catch-up for comments (react to 2)
+        if (commentNotes.length > 0 && settings.reactToNotes) {
+          const reactComments = [...commentNotes]
+            .sort(() => 0.5 - Math.random())
+            .slice(0, 2);
+          
+          reactComments.forEach(n => {
+            if (!processedEventsRef.current.has(n.id)) {
+              processedEventsRef.current.add(n.id);
+              scheduleReactions(n, targetRelays, true);
+            }
+          });
+          addLog(`Scheduled catch-up for comments: reactions scheduled.`, 'success');
+        }
+      }
+    } catch (e) {
+      addLog('Failed to perform catch-up query.', 'error');
+    }
+
+    // 5. Subscribe to target's notes and replies to self
+    const eventHandler = (event: any) => {
+      if (event.pubkey === currentIdentity!.pk) return; // Ignore own events
+      if (processedEventsRef.current.has(event.id)) return; // Already handled
+      
+      processedEventsRef.current.add(event.id);
+
+      if (isVerbose) {
+        addLog(`Event received: ${event.id.substring(0, 8)} (Kind: ${event.kind})`, 'info');
+      }
+      
+      const eTags = event.tags.filter((t: any) => t[0] === 'e');
+      const isReply = eTags.some((t: any) => t[3] === 'reply' || t[3] === 'root');
+      
+      // Check if it's a mention/reply to us from someone else
+      const mentionsSelf = event.tags.some((t: any) => t[0] === 'p' && t[1] === currentIdentity!.pk);
+
+      if (mentionsSelf && event.pubkey !== targetHex) {
+        addLog(`New mention/reply from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success');
+        scheduleReply(event, targetRelays);
+        scheduleReactions(event, targetRelays, true);
+        return;
+      }
+
+      if (event.pubkey === targetHex) {
+        if (eTags.length > 0 && isReply) {
+          // If the target is replying specifically to us, always reply back
+          if (mentionsSelf) {
+            addLog(`Target replied to us! ${event.id.substring(0, 8)}...`, 'success');
+            scheduleReply(event, targetRelays);
+            scheduleReactions(event, targetRelays, true);
+            return;
+          }
+
+          // Otherwise it's just a general comment/reply from the target. React to 1/3 of them.
+          if (Math.random() < 0.33) {
+            addLog(`Reacting to target's comment: ${event.id.substring(0, 8)}...`, 'success');
+            scheduleReactions(event, targetRelays, true);
+          } else if (isVerbose) {
+            addLog(`Skipped reaction for target's comment: ${event.id.substring(0, 8)}`, 'info');
+          }
+          return;
+        }
+
+        addLog(`New note from target: ${event.id.substring(0, 8)}...`, 'success');
+        scheduleReply(event, targetRelays);
+        scheduleReactions(event, targetRelays, false);
+      }
+    };
+
+    const subTarget = poolRef.current.subscribeMany(targetRelays, 
+      {
+        kinds: [1],
+        authors: [targetHex],
+        since: Math.floor(Date.now() / 1000)
+      }, { onevent: eventHandler });
+
+    const subMentions = poolRef.current.subscribeMany([...new Set([...targetRelays, ...PUBLISH_RELAYS])], 
+      {
+        kinds: [1],
+        '#p': [currentIdentity!.pk],
+        since: Math.floor(Date.now() / 1000)
+      }, { onevent: eventHandler });
+
+    subscriptionsRef.current.push(subTarget, subMentions);
+    addLog('Subscription active. Monitoring for notes and mentions...', 'info');
+  };
+
+  // --- Render Helpers ---
+
+  return (
+    <div className="min-h-screen bg-[#0a0a0a] text-zinc-200 font-sans selection:bg-emerald-500/30">
+      {/* Header */}
+      <header className="border-b border-zinc-800/50 bg-black/40 backdrop-blur-md sticky top-0 z-10">
+        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center shadow-lg shadow-emerald-500/20">
+              <Brain className="w-5 h-5 text-black" />
+            </div>
+            <h1 className="text-xl font-semibold tracking-tight text-white">EchoBot</h1>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setShowIdentityManager(true)}
+              className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white"
+              title="Manage Identities"
+            >
+              <Users className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={() => setShowSettingsDialog(true)}
+              className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white"
+              title="Bot Settings"
+            >
+              <SettingsIcon className="w-5 h-5" />
+            </button>
+            
+            {isRunning ? (
+              <button
+                onClick={stopBot}
+                className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-full hover:bg-red-500/20 transition-all font-medium text-base"
+              >
+                <Square className="w-4 h-4 fill-current" />
+                Stop Bot
+              </button>
+            ) : (
+              <button
+                onClick={startBot}
+                disabled={settings.useAI && aiStatus !== 'ready'}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 rounded-full transition-all font-semibold text-base shadow-lg",
+                  settings.useAI && aiStatus !== 'ready' 
+                    ? "bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700 shadow-none" 
+                    : "bg-emerald-500 text-black hover:bg-emerald-400 shadow-emerald-500/20"
+                )}
+              >
+                {settings.useAI && aiStatus !== 'ready' ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Loading AI...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>Start Bot</span>
+                  </>
+                )}
+              </button>
+            )}          </div>
+        </div>
+      </header>
+
+      <main className="max-w-5xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Left Column: Controls */}
+        <div className="lg:col-span-5 space-y-6">
+          {/* Identity Info */}
+          <section className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-6 space-y-4 relative overflow-hidden group/card">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-zinc-400">
+                {settings.useAI ? <Brain className="w-4 h-4 text-emerald-500" /> : <Activity className="w-4 h-4" />}
+                <h2 className="text-sm font-bold uppercase tracking-widest">{settings.useAI ? 'AI Identity' : 'Current Identity'}</h2>
+              </div>
+              {settings.useAI && (
+                <button 
+                  onClick={() => {
+                    setRightTab('persona');
+                    setPersonaSubTab('prompt');
+                  }}
+                  className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-emerald-500 transition-all flex items-center gap-1.5 border border-transparent hover:border-zinc-700"
+                  title="AI Persona Settings"
+                >
+                  <SettingsIcon className="w-3.5 h-3.5" />
+                  <span className="text-xs font-bold uppercase">Persona</span>
+                </button>
+              )}
+            </div>            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <img 
+                  src={settings.profile.picture} 
+                  alt="Avatar" 
+                  className="w-10 h-10 rounded-lg bg-zinc-800 border border-zinc-700"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="text-base font-medium text-white truncate flex items-center gap-2">
+                    {settings.profile.name || 'Anonymous'}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-xs text-zinc-500 font-mono truncate flex-1">
+                      {currentIdentity ? nip19.npubEncode(currentIdentity.pk) : 'Generating...'}
+                    </div>
+                    {currentIdentity && (
+                      <div className="flex items-center gap-1">
+                        <button 
+                          onClick={() => copyToClipboard(nip19.npubEncode(currentIdentity.pk))}
+                          className="p-1 hover:bg-zinc-800 rounded transition-colors text-zinc-500 hover:text-white"
+                          title="Copy npub"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </button>
+                        <button 
+                          onClick={() => copyToClipboard(nip19.nsecEncode(currentIdentity.sk))}
+                          className="p-1 hover:bg-zinc-800 rounded transition-colors text-zinc-500 hover:text-white"
+                          title="Copy nsec (Private Key)"
+                        >
+                          <Lock className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-2 bg-emerald-500/5 border border-emerald-500/10 rounded-lg">
+                <Info className="w-3 h-3 text-emerald-500" />
+                <span className="text-xs text-emerald-500/80">Identity is persisted in your browser.</span>
+              </div>
+            </div>
+          </section>
+
+          {/* AI Playground (Test Bench) */}
+          {settings.useAI && (
+            <section className="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl overflow-hidden flex flex-col h-[400px]">
+              <div className="px-4 py-3 border-b border-zinc-800/50 flex items-center justify-between bg-zinc-900/50">
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-3.5 h-3.5 text-emerald-500" />
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400">AI Persona Test Bench</h3>
+                </div>
+                {playgroundMessages.length > 0 && (
+                  <button 
+                    onClick={() => setPlaygroundMessages([])}
+                    className="text-[11px] font-bold uppercase tracking-widest text-zinc-600 hover:text-zinc-400 transition-colors"
+                  >
+                    Clear Chat
+                  </button>
+                )}
+              </div>
+
+              <div 
+                ref={playgroundScrollRef}
+                className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-black/20"
+              >
+                {playgroundMessages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center space-y-2 opacity-40">
+                    <Brain className="w-8 h-8 text-zinc-700" />
+                    <p className="text-xs font-medium text-zinc-500 max-w-[150px]">
+                      Send a message to test how the AI responds with current settings.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {playgroundMessages.map((msg, idx) => (
+                      <div key={idx} className={cn(
+                        "flex flex-col max-w-[85%] space-y-1",
+                        msg.role === 'user' ? "ml-auto items-end" : "mr-auto items-start"
+                      )}>
+                        <div className={cn(
+                          "px-3 py-2 rounded-2xl text-sm leading-relaxed",
+                          msg.role === 'user' 
+                            ? "bg-zinc-800 text-zinc-200 rounded-tr-none" 
+                            : "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-tl-none"
+                        )}>
+                          {msg.content}
+                        </div>
+                        <span className="text-xs font-bold uppercase tracking-widest text-zinc-600 px-1">
+                          {msg.role === 'user' ? 'You' : settings.profile.name || 'AI'}
+                        </span>
+                      </div>
+                    ))}
+                    
+                    {isPlaygroundThinking && (
+                      <div className="flex flex-col items-start space-y-1 mr-auto animate-pulse">
+                        <div className="bg-zinc-900 border border-zinc-800 px-3 py-2 rounded-2xl rounded-tl-none flex gap-1">
+                          <div className="w-1 h-1 bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <div className="w-1 h-1 bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                          <div className="w-1 h-1 bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="p-3 bg-zinc-900/50 border-t border-zinc-800/50">
+                <div className="relative">
+                  <input 
+                    type="text"
+                    value={playgroundInput}
+                    onChange={(e) => setPlaygroundInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handlePlaygroundSend()}
+                    disabled={aiStatus !== 'ready' || isPlaygroundThinking}
+                    placeholder={aiStatus === 'ready' ? "Send a test message..." : "Waiting for Brain..."}
+                    className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-sm pr-10 focus:outline-none focus:border-emerald-500/50 transition-colors disabled:opacity-50"
+                  />
+                  <button 
+                    onClick={handlePlaygroundSend}
+                    disabled={!playgroundInput.trim() || aiStatus !== 'ready' || isPlaygroundThinking}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-emerald-500 disabled:text-zinc-600 transition-colors"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Active Relays */}
+          {isRunning && activeRelays.length > 0 && (
+            <section className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-6 space-y-4">
+              <div className="flex items-center gap-2 text-zinc-400 mb-2">
+                <RefreshCw className="w-4 h-4" />
+                <h2 className="text-sm font-bold uppercase tracking-widest">Active Relays ({activeRelays.length})</h2>
+              </div>
+              <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar">
+                {activeRelays.map((relay, idx) => (
+                  <div key={idx} className="text-xs font-mono text-zinc-500 truncate">
+                    • {relay}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Target Section */}
+          <section className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-6 space-y-4">
+            <div className="flex items-center gap-2 text-zinc-400 mb-2">
+              <Target className="w-4 h-4" />
+              <h2 className="text-sm font-bold uppercase tracking-widest">Target npub</h2>
+            </div>
+            <input 
+              type="text"
+              placeholder="npub1..."
+              value={settings.targetNpub}
+              onChange={(e) => setSettings(s => ({ ...s, targetNpub: e.target.value }))}
+              disabled={isRunning}
+              className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-emerald-500/50 transition-colors disabled:opacity-50"
+            />
+            <p className="text-xs text-zinc-500 italic">
+              The bot will monitor this user's outbox relays for new notes.
+            </p>
+          </section>
+        </div>
+
+        {/* Right Column: Content Tabs */}
+        <div className="lg:col-span-7">
+          <section className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl h-full flex flex-col overflow-hidden">
+            <div className="flex border-b border-zinc-800/50">
+              <button 
+                onClick={() => setRightTab('log')}
+                className={cn(
+                  "flex-1 py-4 text-xs font-bold uppercase tracking-widest transition-all border-b-2 flex items-center justify-center gap-2",
+                  rightTab === 'log' ? "text-emerald-500 border-emerald-500 bg-emerald-500/5" : "text-zinc-500 border-transparent hover:text-zinc-300"
+                )}
+              >
+                <Activity className="w-3 h-3" />
+                Activity Log
+              </button>
+              <button 
+                onClick={() => setRightTab('persona')}
+                className={cn(
+                  "flex-1 py-4 text-xs font-bold uppercase tracking-widest transition-all border-b-2 flex items-center justify-center gap-2",
+                  rightTab === 'persona' ? "text-emerald-500 border-emerald-500 bg-emerald-500/5" : "text-zinc-500 border-transparent hover:text-zinc-300"
+                )}
+              >
+                <User className="w-3 h-3" />
+                Persona Settings
+              </button>
+            </div>
+
+            <div className="flex-1 flex flex-col min-h-0">
+              {rightTab === 'log' ? (
+                <>
+                  <div className="p-4 border-b border-zinc-800/30 flex items-center justify-between bg-black/20">
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer group">
+                        <div className="relative">
+                          <input 
+                            type="checkbox" 
+                            className="sr-only" 
+                            checked={isVerbose}
+                            onChange={(e) => setIsVerbose(e.target.checked)}
+                          />
+                          <div className={cn(
+                            "w-6 h-3 rounded-full transition-colors",
+                            isVerbose ? "bg-emerald-500/50" : "bg-zinc-700"
+                          )}></div>
+                          <div className={cn(
+                            "absolute -left-1 -top-1 w-5 h-5 rounded-full transition-transform shadow-lg",
+                            isVerbose ? "translate-x-3 bg-emerald-400" : "translate-x-0 bg-zinc-500"
+                          )}></div>
+                        </div>
+                        <span className="text-xs text-zinc-500 uppercase tracking-widest font-bold group-hover:text-zinc-300 transition-colors">Verbose</span>
+                      </label>
+                    </div>
+                    <button 
+                      onClick={() => setLogs([])}
+                      className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors uppercase tracking-widest font-bold flex items-center gap-1.5"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      Clear
+                    </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-[11px] custom-scrollbar">
+                    <AnimatePresence initial={false}>
+                      {logs.map((log) => (
+                        <motion.div 
+                          key={log.id}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          className={cn(
+                            "flex gap-3 p-2 rounded border",
+                            log.type === 'info' && "bg-zinc-800/20 border-zinc-800/50 text-zinc-400",
+                            log.type === 'success' && "bg-emerald-500/5 border-emerald-500/10 text-emerald-400",
+                            log.type === 'warning' && "bg-amber-500/5 border-amber-500/10 text-amber-400",
+                            log.type === 'error' && "bg-red-500/5 border-red-500/10 text-red-400"
+                          )}
+                        >
+                          <span className="opacity-30 shrink-0">
+                            {new Date(log.timestamp).toLocaleTimeString([], { hour12: false })}
+                          </span>
+                          <span className="flex-1 break-words">{log.message}</span>
+                          {log.type === 'success' && <CheckCircle2 className="w-3 h-3 shrink-0" />}
+                          {log.type === 'error' && <AlertCircle className="w-3 h-3 shrink-0" />}
+                        </motion.div>
+                      ))}
+                    </AnimatePresence>
+                    {logs.length === 0 && (
+                      <div className="h-full flex flex-col items-center justify-center text-zinc-700 space-y-2 opacity-50">
+                        <Activity className="w-8 h-8" />
+                        <p className="italic text-sm text-center">No activity yet. Start the bot to begin monitoring.</p>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  <div className="flex gap-1 p-2 bg-black/20 border-b border-zinc-800/30">
+                    {[
+                      { id: 'profile', label: 'Profile', icon: User },
+                      { id: 'prompt', label: 'System Prompt', icon: MessageSquare },
+                      { id: 'tuning', label: 'Tuning', icon: SettingsIcon }
+                    ].map(tab => (
+                      <button
+                        key={tab.id}
+                        onClick={() => setPersonaSubTab(tab.id as any)}
+                        className={cn(
+                          "flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
+                          personaSubTab === tab.id 
+                            ? "bg-zinc-800 text-emerald-400 shadow-inner" 
+                            : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                        )}
+                      >
+                        <tab.icon className="w-3 h-3" />
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                    <AnimatePresence mode="wait">
+                      {personaSubTab === 'profile' && (
+                        <motion.div 
+                          key="profile"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          className="space-y-5"
+                        >
+                          <div className="grid grid-cols-1 gap-5">
+                            <div className="space-y-1.5">
+                              <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Display Name</label>
+                              <input 
+                                type="text"
+                                value={settings.profile.name}
+                                onChange={(e) => setSettings(s => ({ ...s, profile: { ...s.profile, name: e.target.value } }))}
+                                className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">About / Bio</label>
+                              <textarea 
+                                value={settings.profile.about}
+                                onChange={(e) => setSettings(s => ({ ...s, profile: { ...s.profile, about: e.target.value } }))}
+                                className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-base focus:outline-none focus:border-emerald-500/50 transition-colors h-24 resize-none"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Picture URL</label>
+                              <input 
+                                type="text"
+                                value={settings.profile.picture}
+                                onChange={(e) => setSettings(s => ({ ...s, profile: { ...s.profile, picture: e.target.value } }))}
+                                className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-1.5">
+                                <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">NIP-05</label>
+                                <input 
+                                  type="text"
+                                  value={settings.profile.nip05}
+                                  onChange={(e) => setSettings(s => ({ ...s, profile: { ...s.profile, nip05: e.target.value } }))}
+                                  className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
+                                  placeholder="user@domain.com"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Lightning (LUD-16)</label>
+                                <input 
+                                  type="text"
+                                  value={settings.profile.lud16 || ''}
+                                  onChange={(e) => setSettings(s => ({ ...s, profile: { ...s.profile, lud16: e.target.value } }))}
+                                  className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
+                                  placeholder="user@getalby.com"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {personaSubTab === 'prompt' && (
+                        <motion.div 
+                          key="prompt"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          className="space-y-4"
+                        >
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-xs font-bold uppercase tracking-widest text-zinc-500">System Prompt</h4>
+                              <div className="flex gap-2">
+                                <code className="text-[11px] px-1.5 py-0.5 bg-zinc-800 rounded text-pink-400">{"{name}"}</code>
+                                <code className="text-[11px] px-1.5 py-0.5 bg-zinc-800 rounded text-pink-400">{"{target_name}"}</code>
+                              </div>
+                            </div>
+                            <textarea
+                              value={settings.aiSystemPrompt}
+                              onChange={(e) => setSettings(s => ({ ...s, aiSystemPrompt: e.target.value }))}
+                              className="w-full bg-black border border-zinc-800 rounded-2xl px-5 py-4 text-base focus:outline-none focus:border-emerald-500/50 transition-colors min-h-[300px] leading-relaxed text-zinc-300 custom-scrollbar"
+                              placeholder="Describe how the AI should behave..."
+                            />
+                            <div className="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl space-y-2">
+                              <div className="flex items-center gap-2 text-emerald-500/80">
+                                <Sparkles className="w-3.5 h-3.5" />
+                                <span className="text-xs font-bold uppercase tracking-widest">Bot Tip</span>
+                              </div>
+                              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                                Operational rules (no meta-talk, etc.) are applied automatically. Use this space strictly to define your character's personality and vibe.
+                              </p>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {personaSubTab === 'tuning' && (
+                        <motion.div 
+                          key="tuning"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          className="space-y-6"
+                        >
+                          <div className="grid grid-cols-2 gap-2">
+                            {Object.keys(MODEL_PRESETS[settings.modelId] || {}).map((preset) => (
+                              <button
+                                key={preset}
+                                onClick={() => setSettings(s => ({ ...s, ...MODEL_PRESETS[s.modelId][preset] }))}
+                                className={cn(
+                                  "px-3 py-2 rounded-xl border text-xs font-bold uppercase transition-all",
+                                  Object.entries(MODEL_PRESETS[settings.modelId][preset]).every(([k, v]) => (settings as any)[k] === v)
+                                    ? "bg-emerald-500/10 border-emerald-500 text-emerald-500"
+                                    : "bg-black border-zinc-800 text-zinc-500 hover:border-zinc-700"
+                                )}
+                              >
+                                {preset}
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="space-y-5 px-1">
+                            {[
+                              { label: 'Temperature', key: 'temperature', min: 0, max: 2, step: 0.01 },
+                              { label: 'Top-P (Nucleus)', key: 'top_p', min: 0, max: 1, step: 0.01 },
+                              { label: 'Top-K', key: 'top_k', min: 1, max: 100, step: 1 },
+                              { label: 'Repetition Penalty', key: 'repetition_penalty', min: 1, max: 2, step: 0.01 },
+                              { label: 'Presence Penalty', key: 'presence_penalty', min: -2, max: 2, step: 0.01 },
+                              { label: 'Frequency Penalty', key: 'frequency_penalty', min: -2, max: 2, step: 0.01 },
+                            ].map((param) => (
+                              <div key={param.key} className="space-y-2">
+                                <div className="flex justify-between items-center">
+                                  <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">{param.label}</label>
+                                  <span className="text-xs font-mono text-emerald-500">{(settings as any)[param.key].toFixed(param.step < 1 ? 2 : 0)}</span>
+                                </div>
+                                <input 
+                                  type="range" min={param.min} max={param.max} step={param.step}
+                                  value={(settings as any)[param.key]}
+                                  onChange={(e) => setSettings(s => ({ ...s, [param.key]: parseFloat(e.target.value) }))}
+                                  className="w-full accent-emerald-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  <div className="p-4 bg-black/40 border-t border-zinc-800/50 flex justify-between items-center">
+                    <button
+                      onClick={() => setShowAddIdentityDialog(true)}
+                      className="px-4 py-2 bg-zinc-800 text-zinc-400 rounded-full font-semibold text-xs hover:bg-zinc-700 hover:text-white transition-all flex items-center gap-2 uppercase tracking-widest"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Create New Bot
+                    </button>
+                    <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-600 italic">Settings save automatically</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      </main>
+
+      {/* Identity Manager Dialog */}
+      <AnimatePresence>
+        {showIdentityManager && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl"
+            >
+              <div className="p-6 border-b border-zinc-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className="w-5 h-5 text-emerald-500" />
+                  <h3 className="text-xl font-semibold text-white">Bot Identities</h3>
+                </div>
+                <button onClick={() => setShowIdentityManager(false)} className="text-zinc-500 hover:text-white transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="p-6 space-y-6 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                <div className="flex items-center justify-between p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl">
+                  <div className="space-y-1">
+                    <div className="text-base font-medium text-white">Save Current Bot</div>
+                    <div className="text-xs text-zinc-500">Add your current configuration to the saved list.</div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      const name = prompt('Enter a name for this bot:');
+                      if (name) saveIdentity(name);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-black rounded-full font-semibold text-sm hover:bg-emerald-400 transition-all"
+                  >
+                    <Save className="w-3 h-3" />
+                    Save Current
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="text-xs font-bold uppercase tracking-widest text-zinc-500 px-1">Saved Bots</div>
+                  {savedIdentities.map((identity) => (
+                    <div key={identity.id} className={cn(
+                      "group flex items-center justify-between p-4 bg-black border rounded-2xl transition-colors",
+                      activeIdentityId === identity.id ? "border-emerald-500/50 bg-emerald-500/5" : "border-zinc-800 hover:border-zinc-700"
+                    )}>
+                      <div className="flex items-center gap-4 min-w-0 flex-1">
+                        <img 
+                          src={identity.settings.profile.picture} 
+                          alt="" 
+                          className="w-10 h-10 rounded-lg bg-zinc-800"
+                        />
+                        <div className="space-y-0.5 min-w-0 flex-1">
+                          <div className="text-base font-medium text-white truncate flex items-center gap-2">
+                            {identity.name}
+                            {activeIdentityId === identity.id && (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 text-xs font-bold uppercase tracking-tighter">Active</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-zinc-500">
+                            <span className="font-mono truncate">{nip19.npubEncode(getPublicKey(nip19.decode(identity.nsec).data as any)).substring(0, 12)}...</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={() => loadIdentity(identity)}
+                          className="px-3 py-1.5 bg-zinc-800 text-white rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-zinc-700 transition-colors"
+                        >
+                          Load
+                        </button>
+                        <button 
+                          onClick={() => deleteIdentity(identity.id)}
+                          className="p-1.5 hover:bg-red-500/10 text-zinc-500 hover:text-red-500 rounded-lg transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {savedIdentities.length === 0 && (
+                    <div className="text-center py-8 text-zinc-600 space-y-2">
+                      <p className="text-base italic">No saved bots yet.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <div className="p-6 bg-zinc-950 flex justify-between items-center">
+                <button
+                  onClick={() => {
+                    setShowIdentityManager(false);
+                    setShowAddIdentityDialog(true);
+                  }}
+                  className="flex items-center gap-2 px-6 py-2 bg-emerald-500 text-black rounded-full font-bold text-base hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/10"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add New Bot
+                </button>
+                <button
+                  onClick={() => setShowIdentityManager(false)}
+                  className="px-6 py-2 bg-zinc-800 text-white rounded-full font-semibold text-base hover:bg-zinc-700 transition-all"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Add New Identity Selection Dialog */}
+      <AnimatePresence>
+        {showAddIdentityDialog && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/90 backdrop-blur-md">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl"
+            >
+              <div className="p-6 border-b border-zinc-800 flex items-center justify-between">
+                <h3 className="text-xl font-semibold text-white">Create New Bot</h3>
+                <button onClick={() => setShowAddIdentityDialog(false)} className="text-zinc-500 hover:text-white transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="p-8 space-y-4">
+                <button 
+                  onClick={() => createNewIdentity('waifu')}
+                  className="w-full flex items-center gap-4 p-4 bg-pink-500/10 border border-pink-500/20 rounded-2xl hover:bg-pink-500/20 transition-all text-left group"
+                >
+                  <div className="w-12 h-12 bg-pink-500 rounded-xl flex items-center justify-center shadow-lg shadow-pink-500/20 group-hover:scale-110 transition-transform">
+                    <Wand2 className="w-6 h-6 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-base font-bold text-white">Random Waifu</div>
+                    <div className="text-xs text-pink-400/70 font-medium">Instant bubbly personality & profile.</div>
+                  </div>
+                </button>
+
+                <button 
+                  onClick={() => createNewIdentity('custom')}
+                  className="w-full flex items-center gap-4 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl hover:bg-emerald-500/20 transition-all text-left group"
+                >
+                  <div className="w-12 h-12 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/20 group-hover:scale-110 transition-transform">
+                    <Plus className="w-6 h-6 text-black" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-base font-bold text-white">Custom Bot</div>
+                    <div className="text-xs text-emerald-400/70 font-medium">Start fresh and build your own.</div>
+                  </div>
+                </button>
+              </div>
+              
+              <div className="p-6 bg-zinc-950 flex justify-center">
+                <button 
+                  onClick={() => setShowAddIdentityDialog(false)}
+                  className="text-xs font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Settings Dialog */}
+      <AnimatePresence>
+        {showSettingsDialog && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+            >
+              <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-white">Bot Configuration</h3>
+                <button onClick={() => setShowSettingsDialog(false)} className="text-zinc-500 hover:text-white transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="flex border-b border-zinc-800">
+                <button 
+                  onClick={() => setSettingsTab('general')}
+                  className={cn(
+                    "flex-1 py-3 text-xs font-bold uppercase tracking-widest transition-all",
+                    settingsTab === 'general' ? "text-emerald-500 border-b-2 border-emerald-500" : "text-zinc-500 hover:text-zinc-300"
+                  )}
+                >
+                  General
+                </button>
+                <button 
+                  onClick={() => setSettingsTab('ai')}
+                  className={cn(
+                    "flex-1 py-3 text-xs font-bold uppercase tracking-widest transition-all",
+                    settingsTab === 'ai' ? "text-emerald-500 border-b-2 border-emerald-500" : "text-zinc-500 hover:text-zinc-300"
+                  )}
+                >
+                  AI Brain
+                </button>
+              </div>
+
+              <div className="p-4 space-y-4 overflow-y-auto custom-scrollbar">
+                {settingsTab === 'general' ? (
+                  <>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-zinc-400">
+                        <Clock className="w-4 h-4" />
+                        <h4 className="text-xs font-bold uppercase tracking-widest">Reply Delay (Seconds)</h4>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-xs text-zinc-500">Minimum</label>
+                          <input 
+                            type="number"
+                            value={settings.minDelay}
+                            onChange={(e) => setSettings(s => ({ ...s, minDelay: parseInt(e.target.value) || 0 }))}
+                            className="w-full bg-black border border-zinc-800 rounded-xl px-3 py-1.5 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-zinc-500">Maximum</label>
+                          <input 
+                            type="number"
+                            value={settings.maxDelay}
+                            onChange={(e) => setSettings(s => ({ ...s, maxDelay: parseInt(e.target.value) || 0 }))}
+                            className="w-full bg-black border border-zinc-800 rounded-xl px-3 py-1.5 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-zinc-400">
+                        <Heart className="w-4 h-4" />
+                        <h4 className="text-xs font-bold uppercase tracking-widest">Reactions</h4>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="flex items-center justify-between p-3 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
+                          <div className="space-y-0.5">
+                            <div className="text-sm font-medium text-white">Enable Reactions</div>
+                            <div className="text-[11px] text-zinc-500">Send "+" and custom emojis.</div>
+                          </div>
+                          <div className={cn(
+                            "w-8 h-4 rounded-full transition-all relative",
+                            settings.reactToNotes ? "bg-emerald-500" : "bg-zinc-800"
+                          )}>
+                            <input 
+                              type="checkbox"
+                              checked={settings.reactToNotes}
+                              onChange={(e) => setSettings(s => ({ ...s, reactToNotes: e.target.checked }))}
+                              className="sr-only"
+                            />
+                            <div className={cn(
+                              "absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all",
+                              settings.reactToNotes ? "left-4.5" : "left-0.5"
+                            )} />
+                          </div>
+                        </label>
+
+                        {settings.reactToNotes && (
+                          <div className="space-y-2 p-1">
+                            <div className="flex items-end gap-2">
+                              <div className="flex-1 space-y-1">
+                                <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Custom Emojis</label>
+                                <input 
+                                  type="text"
+                                  value={reactionEmojis}
+                                  onChange={(e) => setReactionEmojis(e.target.value)}
+                                  className="w-full bg-black border border-zinc-800 rounded-xl px-3 py-1.5 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
+                                  placeholder="❤️ 🔥 👍"
+                                />
+                              </div>
+                              <button 
+                                onClick={() => setShowEmojiPickerDialog(true)}
+                                className="p-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl transition-colors border border-zinc-700"
+                              >
+                                <Sparkles className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-zinc-400">
+                        <Brain className="w-4 h-4" />
+                        <h4 className="text-xs font-bold uppercase tracking-widest text-zinc-500">AI Model</h4>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 gap-2">
+                          {SUPPORTED_MODELS.map((model) => (
+                            <button
+                              key={model.id}
+                              onClick={() => setSettings(s => ({ ...s, modelId: model.id }))}
+                              className={cn(
+                                "p-3 rounded-2xl border text-left transition-all",
+                                settings.modelId === model.id
+                                  ? "bg-emerald-500/10 border-emerald-500"
+                                  : "bg-black border-zinc-800 hover:border-zinc-700"
+                              )}
+                            >
+                              <div className="flex justify-between items-center mb-1">
+                                <span className={cn(
+                                  "text-sm font-bold uppercase tracking-widest",
+                                  settings.modelId === model.id ? "text-emerald-500" : "text-white"
+                                )}>
+                                  {model.name}
+                                </span>
+                                <span className="text-[11px] font-mono text-zinc-500">{model.size}</span>
+                              </div>
+                              <p className="text-[11px] text-zinc-500 leading-tight">{model.description}</p>
+                            </button>
+                          ))}
+                        </div>
+
+                        <label className="flex items-center justify-between p-3 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
+                          <div className="space-y-0.5">
+                            <div className="text-sm font-medium text-white">Enable On-Device AI</div>
+                            <div className="text-[11px] text-zinc-500">Local LLM for context-aware replies.</div>
+                          </div>
+                          <div className={cn(
+                            "w-8 h-4 rounded-full transition-all relative",
+                            settings.useAI ? "bg-emerald-500" : "bg-zinc-800"
+                          )}>
+                            <input 
+                              type="checkbox"
+                              checked={settings.useAI}
+                              onChange={(e) => setSettings(s => ({ ...s, useAI: e.target.checked }))}
+                              className="sr-only"
+                            />
+                            <div className={cn(
+                              "absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all",
+                              settings.useAI ? "left-4.5" : "left-0.5"
+                            )} />
+                          </div>
+                        </label>
+
+                        {settings.useAI && (aiStatus === 'loading' || aiStatus === 'idle') && (
+                          <div className="p-3 bg-zinc-900/50 border border-zinc-800 rounded-xl space-y-2">
+                            <div className="flex justify-between text-[11px] uppercase font-bold tracking-widest text-zinc-500">
+                              <span className="truncate max-w-[150px]">{currentLoadingFile ? `Loading ${currentLoadingFile}...` : 'Initializing...'}</span>
+                              <span>{Math.round(aiProgress)}%</span>
+                            </div>
+                            <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-emerald-500 transition-all duration-300" 
+                                style={{ width: `${aiProgress}%` }}
+                              />
+                            </div>
+                            <p className="text-xs text-zinc-500 italic">One-time download, cached after.</p>
+                          </div>
+                        )}
+                        
+                        {aiStatus === 'ready' && (
+                          <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-xl flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                            <span className="text-xs font-bold uppercase tracking-widest text-emerald-500">Brain Loaded & Ready</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="p-4 bg-zinc-950 border-t border-zinc-800 flex justify-end">
+                <button 
+                  onClick={() => setShowSettingsDialog(false)}
+                  className="px-6 py-2 bg-emerald-500 text-black rounded-full font-bold text-base hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/10"
+                >
+                  Apply Settings
+                </button>
+              </div>            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showEmojiPickerDialog && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl"
+            >
+              <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+                <h3 className="text-base font-semibold text-white">Emoji Picker</h3>
+                <button onClick={() => setShowEmojiPickerDialog(false)} className="text-zinc-500 hover:text-white transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="p-4 space-y-4">
+                <input 
+                  type="text"
+                  placeholder="Search emojis (e.g. 'heart', 'smile')..."
+                  value={emojiSearchQuery}
+                  onChange={(e) => setEmojiSearchQuery(e.target.value)}
+                  className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
+                  autoFocus
+                />
+                
+                <div className="max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+                  {!emojiSearchQuery && (
+                    <div className="space-y-3">
+                      <h4 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Popular</h4>
+                      <div className="grid grid-cols-8 gap-2">
+                        {POPULAR_EMOJIS.map((emoji, idx) => {
+                          const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+                          const currentEmojis = [...segmenter.segment(reactionEmojis)].map(s => s.segment).filter(c => c.trim() !== '');
+                          const isActive = currentEmojis.includes(emoji);
+                          
+                          return (
+                            <button
+                              key={idx}
+                              onClick={() => {
+                                if (isActive) {
+                                  setReactionEmojis(currentEmojis.filter(e => e !== emoji).join(' '));
+                                } else {
+                                  setReactionEmojis([...currentEmojis, emoji].join(' '));
+                                }
+                              }}
+                              className={cn(
+                                "w-9 h-9 flex items-center justify-center rounded-lg text-xl transition-all",
+                                isActive 
+                                  ? "bg-emerald-500/20 text-white border border-emerald-500/30 scale-110" 
+                                  : "bg-black hover:bg-zinc-800 text-zinc-400 border border-zinc-800"
+                              )}
+                            >
+                              {emoji}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {emojiSearchQuery && (
+                    <div className="space-y-3">
+                      <h4 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Search Results</h4>
+                      <div className="grid grid-cols-8 gap-2">
+                        {EMOJI_DATA.filter(e => e.k.includes(emojiSearchQuery.toLowerCase())).map((item, idx) => {
+                          const emoji = item.c;
+                          const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+                          const currentEmojis = [...segmenter.segment(reactionEmojis)].map(s => s.segment).filter(c => c.trim() !== '');
+                          const isActive = currentEmojis.includes(emoji);
+                          
+                          return (
+                            <button
+                              key={idx}
+                              onClick={() => {
+                                if (isActive) {
+                                  setReactionEmojis(currentEmojis.filter(e => e !== emoji).join(' '));
+                                } else {
+                                  setReactionEmojis([...currentEmojis, emoji].join(' '));
+                                }
+                              }}
+                              className={cn(
+                                "w-9 h-9 flex items-center justify-center rounded-lg text-xl transition-all",
+                                isActive 
+                                  ? "bg-emerald-500/20 text-white border border-emerald-500/30 scale-110" 
+                                  : "bg-black hover:bg-zinc-800 text-zinc-400 border border-zinc-800"
+                              )}
+                            >
+                              {emoji}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <div className="p-4 bg-zinc-950 flex justify-end">
+                <button 
+                  onClick={() => {
+                    setShowEmojiPickerDialog(false);
+                    setEmojiSearchQuery('');
+                  }}
+                  className="px-6 py-2 bg-emerald-500 text-black rounded-full font-semibold text-base hover:bg-emerald-400 transition-all"
+                >
+                  Done
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #27272a;
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #3f3f46;
+        }
+      `}</style>
+    </div>
+  );
+}
