@@ -8,8 +8,9 @@ env.allowRemoteModels = true;
 // Optimize for browser environment with safety limits
 const coreCount = navigator.hardwareConcurrency || 4;
 if (self.crossOriginIsolated) {
-    env.backends.onnx.wasm.numThreads = Math.min(coreCount, 4); 
-    console.log(`[Worker] Environment is Cross-Origin Isolated. Threads: ${env.backends.onnx.wasm.numThreads}`);
+    // Use NumCores - 1 for responsiveness, capped at 8 for WASM stability
+    env.backends.onnx.wasm.numThreads = Math.min(Math.max(coreCount - 1, 1), 8); 
+    console.log(`[Worker] Environment is Cross-Origin Isolated. Threads: ${env.backends.onnx.wasm.numThreads} (Hardware cores: ${coreCount})`);
 } else {
     console.warn(`[Worker] Environment is NOT Cross-Origin Isolated. Fallback to single-threaded mode.`);
 }

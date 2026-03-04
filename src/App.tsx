@@ -51,6 +51,15 @@ function cn(...inputs: ClassValue[]) {
 
 // --- Types ---
 
+declare global {
+  interface Window {
+    nostr?: {
+      getPublicKey: () => Promise<string>;
+      signEvent: (event: any) => Promise<any>;
+    };
+  }
+}
+
 interface LogEntry {
   id: string;
   timestamp: number;
@@ -388,6 +397,8 @@ const SEARCH_RELAYS = [
   ...PUBLISH_RELAYS
 ];
 
+const KIND_BOT_IDENTITY = 38752;
+
 // --- Helpers ---
 
 function generateWaifuProfile(): ProfileInfo {
@@ -426,6 +437,12 @@ const DEFAULT_SETTINGS: BotSettings = {
 export default function App() {
   // State
   const [isRunning, setIsRunning] = useState(false);
+  const [userPubkey, setUserPubkey] = useState<string | null>(null);
+  const [curatorProfile, setCuratorProfile] = useState<ProfileInfo | null>(null);
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState(1);
+  const [communityPersonas, setCommunityPersonas] = useState<{ id: string; author: string; settings: BotSettings; event: any }[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isVerbose, setIsVerbose] = useState(false);
   const [lastNormalProfile, setLastNormalProfile] = useState<ProfileInfo | null>({
@@ -440,6 +457,8 @@ export default function App() {
   const [currentIdentity, setCurrentIdentity] = useState<{ sk: Uint8Array; pk: string } | null>(null);
   const [activeRelays, setActiveRelays] = useState<string[]>([]);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+  const [showManager, setShowManager] = useState(false);
+  const [managerTab, setManagerTab] = useState<'local' | 'community'>('local');
   const [settingsTab, setSettingsTab] = useState<'general' | 'ai'>('general');
   const [rightTab, setRightTab] = useState<'log' | 'persona'>('log');
   const [personaSubTab, setPersonaSubTab] = useState<'profile' | 'prompt' | 'tuning'>('profile');
@@ -569,103 +588,88 @@ export default function App() {
   };
 
   async function generateBotMessage(targetNpub?: string, content?: string): Promise<string> {
-    let messageText = '';
-    let usedAI = false;
+    if (!settings.useAI || aiStatus !== 'ready' || !aiWorkerRef.current || !content) {
+      addLog('AI Brain is not ready. Skipping reply.', 'warning');
+      return '';
+    }
 
-    // 1. Try AI Generation
-    if (settings.useAI && aiStatus === 'ready' && aiWorkerRef.current && content) {
-      try {
-        const history = conversationHistoryRef.current.get(targetNpub || 'default') || [];
-        const userPersona = settings.aiSystemPrompt
-          .replace(/{name}/gi, settings.profile.name)
-          .replace(/{target_name}/gi, settings.targetName || 'darling');
+    try {
+      const history = conversationHistoryRef.current.get(targetNpub || 'default') || [];
+      const userPersona = settings.aiSystemPrompt
+        .replace(/{name}/gi, settings.profile.name)
+        .replace(/{target_name}/gi, settings.targetName || 'darling');
 
-        const hiddenRules = MODEL_HIDDEN_RULES[settings.modelId] || "";
-        const fullSystemPrompt = `${hiddenRules}\n\n${userPersona}`;
+      const hiddenRules = MODEL_HIDDEN_RULES[settings.modelId] || "";
+      const fullSystemPrompt = `${hiddenRules}\n\n${userPersona}`;
 
-        const rawMessages = [
-          { role: 'system', content: fullSystemPrompt },
-          ...history,
-          { role: 'user', content }
-        ];
+      const rawMessages = [
+        { role: 'system', content: fullSystemPrompt },
+        ...history,
+        { role: 'user', content }
+      ];
 
-        const messages = sanitizeConversationHistory(rawMessages);
+      const messages = sanitizeConversationHistory(rawMessages);
 
-        const aiPromise = new Promise<string>((resolve) => {
-          aiResolveRef.current = resolve;
-        });
+      const aiPromise = new Promise<string>((resolve) => {
+        aiResolveRef.current = resolve;
+      });
 
-        aiWorkerRef.current.postMessage({
-          type: 'generate',
-          data: { 
-            messages, 
-            max_new_tokens: settings.modelId.includes('270m') ? 40 : 64, // Even tighter for live replies
-            temperature: settings.temperature,
-            top_p: settings.top_p,
-            top_k: settings.top_k,
-            repetition_penalty: settings.repetition_penalty,
-            presence_penalty: settings.presence_penalty,
-            frequency_penalty: settings.frequency_penalty
-          }
-        });
-
-        const aiResult = await aiPromise;
-        if (typeof aiResult === 'string' && aiResult.trim()) {
-          let cleaned = aiResult.trim();
-          
-          const namePrefix = settings.profile.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const prefixRegex = new RegExp(`^(${namePrefix}|assistant|bot|reply):`, 'i');
-          cleaned = cleaned.replace(prefixRegex, '').trim();
-          cleaned = cleaned.replace(/^[^:]+:/, '').trim(); 
-
-          // Truncate to first 2 sentences for live replies to keep them snappy
-          const sentenceEndRegex = /[.!?](\s+|$)/;
-          const sentences = cleaned.split(sentenceEndRegex).filter(s => s && s.trim().length > 1);
-          if (sentences.length > 2) {
-            cleaned = sentences.slice(0, 2).join('. ') + '.';
-          }
-
-          if (!cleaned && aiResult.includes(':')) {
-             cleaned = aiResult.split(':').slice(1).join(':').trim();
-          }
-
-          messageText = cleaned || aiResult.trim();
-          usedAI = true;
-
-          const newHistory = [
-            ...history,
-            { role: 'user', content },
-            { role: 'assistant', content: messageText }
-          ].slice(-10);
-          conversationHistoryRef.current.set(targetNpub || 'default', newHistory);
+      aiWorkerRef.current.postMessage({
+        type: 'generate',
+        data: { 
+          messages, 
+          max_new_tokens: settings.modelId.includes('270m') ? 40 : 64,
+          temperature: settings.temperature,
+          top_p: settings.top_p,
+          top_k: settings.top_k,
+          repetition_penalty: settings.repetition_penalty,
+          presence_penalty: settings.presence_penalty,
+          frequency_penalty: settings.frequency_penalty
         }
-      } catch (e) {
-        console.error('AI Brain error, falling back to templates:', e);
+      });
+
+      const aiResult = await aiPromise;
+      if (typeof aiResult === 'string' && aiResult.trim()) {
+        let cleaned = aiResult.trim();
+        
+        const namePrefix = settings.profile.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const prefixRegex = new RegExp(`^(${namePrefix}|assistant|bot|reply):`, 'i');
+        cleaned = cleaned.replace(prefixRegex, '').trim();
+        cleaned = cleaned.replace(/^[^:]+:/, '').trim(); 
+
+        const sentenceEndRegex = /[.!?](\s+|$)/;
+        const sentences = cleaned.split(sentenceEndRegex).filter(s => s && s.trim().length > 1);
+        if (sentences.length > 2) {
+          cleaned = sentences.slice(0, 2).join('. ') + '.';
+        }
+
+        if (!cleaned && aiResult.includes(':')) {
+           cleaned = aiResult.split(':').slice(1).join(':').trim();
+        }
+
+        const messageText = cleaned || aiResult.trim();
+
+        const newHistory = [
+          ...history,
+          { role: 'user', content },
+          { role: 'assistant', content: messageText }
+        ].slice(-10);
+        conversationHistoryRef.current.set(targetNpub || 'default', newHistory);
+        
+        return messageText;
       }
+    } catch (e) {
+      console.error('AI Brain error:', e);
+      addLog('AI Generation failed.', 'error');
     }
 
-    // 2. Fallback to Templates
-    if (!usedAI) {
-      const pool = settings.messages.length > 0 ? settings.messages : NORMAL_FALLBACK_MESSAGES;
-      let template = pool[Math.floor(Math.random() * pool.length)];
-
-      const includeName = Math.random() > 0.3;
-      const nameReplacement = (includeName && targetNpub) ? `nostr:${targetNpub}` : 'friend';
-      messageText = template.replace(/{name}/g, nameReplacement);
-
-      // Add simple flair if it's very plain
-      if (!/\p{Extended_Pictographic}/u.test(messageText) && Math.random() < 0.4) {
-        const emojis = ['✨', '🙌', '🧡', '💡', '🚀', '🤝', '🌈', '👏', '💪', '🔥', '💯'];
-        messageText += ` ${emojis[Math.floor(Math.random() * emojis.length)]}`;
-      }
-    }
-
-    return messageText;
+    return '';
   }
 
   const STORAGE_KEY_ACTIVE_NSEC = 'echobot_active_nsec';
   const STORAGE_KEY_SAVED_IDENTITIES = 'echobot_saved_identities';
   const STORAGE_KEY_CURRENT_SESSION = 'echobot_current_session';
+  const STORAGE_KEY_CURATOR_PUBKEY = 'echobot_curator_pubkey';
   
   const poolRef = useRef<SimplePool | null>(null);
   const subscriptionsRef = useRef<any[]>([]);
@@ -789,6 +793,13 @@ export default function App() {
       addLog('Environment is NOT Cross-Origin Isolated. Multi-threading will be limited.', 'warning');
     }
 
+    // 0. Restore Curator Session
+    const savedCuratorPubkey = localStorage.getItem(STORAGE_KEY_CURATOR_PUBKEY);
+    if (savedCuratorPubkey) {
+      setUserPubkey(savedCuratorPubkey);
+      fetchCuratorProfile(savedCuratorPubkey);
+    }
+
     // 1. Load Saved Identities
     const saved = localStorage.getItem(STORAGE_KEY_SAVED_IDENTITIES);
     let loadedIdentities: Identity[] = [];
@@ -837,26 +848,8 @@ export default function App() {
       setActiveIdentityId(first.id);
       addLog(`Loaded identity: ${first.settings.profile.name}`, 'info');
     } else {
-      // Create a Default Bot for first-time users
-      const sk = generateSecretKey();
-      const pk = getPublicKey(sk);
-      const nsec = nip19.nsecEncode(sk);
-      
-      const defaultProfile = {
-        name: 'Echo Bot',
-        about: 'I am a simple echo bot. Friendly, concise, and helpful!',
-        picture: `https://api.dicebear.com/7.x/bottts/svg?seed=${pk}`,
-        nip05: ''
-      };
-
-      const defaultSettings: BotSettings = {
-        ...DEFAULT_SETTINGS,
-        profile: defaultProfile
-      };
-
-      setSettings(defaultSettings);
-      setCurrentIdentity({ sk, pk });
-      addLog('Welcome to EchoBot! A default identity has been created.', 'success');
+      setShowOnboarding(true);
+      addLog('Welcome to EchoBot! Let\'s set up your first autonomous AI.', 'info');
     }
   }, []);
 
@@ -900,6 +893,228 @@ export default function App() {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     addLog('Copied to clipboard.', 'info');
+  };
+
+  const handleNip07Login = async () => {
+    if (!window.nostr) {
+      addLog('Nostr extension not found. Please install Alby or a similar extension.', 'error');
+      return;
+    }
+    try {
+      const pubkey = await window.nostr.getPublicKey();
+      setUserPubkey(pubkey);
+      localStorage.setItem(STORAGE_KEY_CURATOR_PUBKEY, pubkey);
+      addLog(`Logged in as curator: ${pubkey.substring(0, 8)}...`, 'success');
+
+      // Fetch Kind 0 profile
+      fetchCuratorProfile(pubkey);
+    } catch (e) {
+      addLog('NIP-07 Login failed.', 'error');
+    }
+  };
+
+  const fetchCuratorProfile = async (pubkey: string) => {
+    if (!poolRef.current) poolRef.current = new SimplePool();
+    const profileEvent = await poolRef.current.get(SEARCH_RELAYS, {
+      kinds: [0],
+      authors: [pubkey]
+    });
+
+    if (profileEvent) {
+      try {
+        const content = JSON.parse(profileEvent.content);
+        setCuratorProfile({
+          name: content.name || `NIP-07 User`,
+          about: content.about || '',
+          picture: content.picture || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${pubkey}`,
+          nip05: content.nip05 || ''
+        });
+      } catch (e) {
+        setCuratorProfile({
+          name: `NIP-07 User`,
+          about: '',
+          picture: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${pubkey}`,
+          nip05: ''
+        });
+      }
+    } else {
+      setCuratorProfile({
+        name: `NIP-07 User`,
+        about: '',
+        picture: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${pubkey}`,
+        nip05: ''
+      });
+    }
+  };
+
+  const handleLogout = () => {
+    setUserPubkey(null);
+    setCuratorProfile(null);
+    localStorage.removeItem(STORAGE_KEY_CURATOR_PUBKEY);
+    addLog('Logged out from curator account.', 'info');
+  };
+
+  const handleFreshStart = () => {
+    if (window.confirm('Are you absolutely sure? This will delete ALL saved identities, settings, and logs. This action cannot be undone.')) {
+      localStorage.clear();
+      window.location.reload();
+    }
+  };
+
+  const publishPersona = async () => {
+    if (!userPubkey || !window.nostr) {
+      addLog('Please login with a Nostr extension first.', 'error');
+      return;
+    }
+
+    try {
+      // Prepare sanitized settings for sharing
+      const shareableSettings = { 
+        ...settings,
+        targetNpub: '', // Clear target for public sharing
+        targetName: ''
+      };
+
+      const event = {
+        kind: KIND_BOT_IDENTITY,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [
+          ['t', 'echobot-persona'],
+          ['m', settings.modelId],
+          ['n', settings.profile.name]
+        ],
+        content: JSON.stringify(shareableSettings),
+        pubkey: userPubkey
+      };
+
+      const signedEvent = await window.nostr.signEvent(event);
+      
+      if (!poolRef.current) poolRef.current = new SimplePool();
+      const pubs = poolRef.current.publish(PUBLISH_RELAYS, signedEvent);
+      
+      addLog('Publishing persona to network...', 'info');
+      await Promise.allSettled(pubs);
+      addLog('Persona published successfully!', 'success');
+    } catch (e) {
+      addLog(`Failed to publish persona: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error');
+    }
+  };
+
+  const fetchCommunityPersonas = async () => {
+    if (isDiscovering) return;
+    setIsDiscovering(true);
+    setCommunityPersonas([]);
+    
+    if (!poolRef.current) poolRef.current = new SimplePool();
+
+    try {
+      const events = await poolRef.current.querySync(SEARCH_RELAYS, {
+        kinds: [KIND_BOT_IDENTITY],
+        '#t': ['echobot-persona'],
+        limit: 50
+      });
+
+      const parsed = events.map(ev => {
+        try {
+          return {
+            id: ev.id,
+            author: ev.pubkey,
+            settings: JSON.parse(ev.content) as BotSettings,
+            event: ev
+          };
+        } catch (e) { return null; }
+      }).filter(i => i !== null) as any[];
+
+      setCommunityPersonas(parsed);
+      addLog(`Found ${parsed.length} community personas.`, 'info');
+    } catch (e) {
+      addLog('Failed to fetch community personas.', 'error');
+    } finally {
+      setIsDiscovering(false);
+    }
+  };
+
+  const importPersona = (persona: { settings: BotSettings; author: string }) => {
+    const sk = generateSecretKey();
+    const pk = getPublicKey(sk);
+    const nsec = nip19.nsecEncode(sk);
+
+    const newIdentity: Identity = {
+      id: Math.random().toString(36).substring(7),
+      name: persona.settings.profile.name,
+      nsec,
+      settings: {
+        ...persona.settings,
+        targetNpub: '', // Reset target on import
+        targetName: ''
+      },
+      createdAt: Date.now()
+    };
+
+    setSavedIdentities(prev => [newIdentity, ...prev]);
+    loadIdentity(newIdentity);
+    setShowManager(false);
+    addLog(`Imported "${persona.settings.profile.name}" by ${persona.author.substring(0, 8)}...`, 'success');
+  };
+
+  const handleFinishOnboarding = (tempSettings: BotSettings) => {
+    const sk = generateSecretKey();
+    const pk = getPublicKey(sk);
+    const nsec = nip19.nsecEncode(sk);
+
+    const finalSettings = {
+      ...tempSettings,
+      profile: {
+        ...tempSettings.profile,
+        picture: `https://api.dicebear.com/7.x/bottts/svg?seed=${pk}`
+      }
+    };
+
+    const newIdentity: Identity = {
+      id: Math.random().toString(36).substring(7),
+      name: finalSettings.profile.name,
+      nsec,
+      settings: finalSettings,
+      createdAt: Date.now()
+    };
+
+    setSavedIdentities(prev => [newIdentity, ...prev]);
+    loadIdentity(newIdentity);
+    setSettings(s => ({ ...s, useAI: true })); // Force AI on for new bots
+    setShowOnboarding(false);
+    addLog(`Created your new AI Persona: ${finalSettings.profile.name}!`, 'success');
+  };
+
+  const unpublishPersona = async (eventToDelete: any) => {
+    if (!userPubkey || !window.nostr || eventToDelete.pubkey !== userPubkey) {
+      addLog('You can only delete your own published personas.', 'error');
+      return;
+    }
+
+    try {
+      const deletionEvent = {
+        kind: 5,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [['e', eventToDelete.id]],
+        content: `Deletion request for EchoBot persona: ${eventToDelete.id}`,
+        pubkey: userPubkey
+      };
+
+      const signedEvent = await window.nostr.signEvent(deletionEvent);
+      
+      if (!poolRef.current) poolRef.current = new SimplePool();
+      const pubs = poolRef.current.publish(PUBLISH_RELAYS, signedEvent);
+
+      addLog(`Requesting deletion of persona ${eventToDelete.id.substring(0,8)}...`, 'info');
+      await Promise.allSettled(pubs);
+
+      // Remove from local view immediately
+      setCommunityPersonas(prev => prev.filter(p => p.id !== eventToDelete.id));
+      addLog('Deletion request sent.', 'success');
+
+    } catch (e) {
+      addLog(`Failed to send deletion request: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error');
+    }
   };
 
   const saveIdentity = async (name: string) => {
@@ -1208,6 +1423,7 @@ export default function App() {
           if (!identity || !poolRef.current) return;
 
           const message = await generateBotMessage(settings.targetNpub, event.content);
+          if (!message) return;
           
           // Improved NIP-10 tagging
           const eTags = event.tags.filter((t: any) => t[0] === 'e');
@@ -1458,12 +1674,42 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-4">
+            {userPubkey && curatorProfile ? (
+              <button 
+                onClick={handleLogout}
+                className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800/50 rounded-full border border-zinc-700/50 hover:bg-red-500/10 hover:border-red-500/30 transition-all group"
+                title="Sign Out"
+              >
+                <img 
+                  src={curatorProfile.picture} 
+                  alt="Curator Avatar" 
+                  className="w-4 h-4 rounded-full group-hover:opacity-50"
+                  referrerPolicy="no-referrer"
+                  crossOrigin="anonymous"
+                />
+                <span className="text-xs font-medium text-zinc-300 group-hover:text-red-400">{curatorProfile.name}</span>
+              </button>
+            ) : (
+              <button 
+                onClick={handleNip07Login}
+                className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800/50 text-zinc-400 rounded-full hover:bg-zinc-700/50 hover:text-white transition-colors text-xs font-medium border border-zinc-700/50"
+                title="Login with Nostr Extension"
+              >
+                <User className="w-3.5 h-3.5" />
+                Sign In
+              </button>
+            )}
+
             <button 
-              onClick={() => setShowIdentityManager(true)}
-              className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white"
+              onClick={() => {
+                setManagerTab('local');
+                setShowManager(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-full transition-all text-zinc-300 hover:text-white border border-zinc-700 shadow-sm"
               title="Manage Identities"
             >
-              <Users className="w-5 h-5" />
+              <Users className="w-4 h-4" />
+              <span className="text-xs font-bold uppercase tracking-widest">Manage Bots</span>
             </button>
             <button 
               onClick={() => setShowSettingsDialog(true)}
@@ -1938,16 +2184,54 @@ export default function App() {
 
                           <div className="space-y-5 px-1">
                             {[
-                              { label: 'Temperature', key: 'temperature', min: 0, max: 2, step: 0.01 },
-                              { label: 'Top-P (Nucleus)', key: 'top_p', min: 0, max: 1, step: 0.01 },
-                              { label: 'Top-K', key: 'top_k', min: 1, max: 100, step: 1 },
-                              { label: 'Repetition Penalty', key: 'repetition_penalty', min: 1, max: 2, step: 0.01 },
-                              { label: 'Presence Penalty', key: 'presence_penalty', min: -2, max: 2, step: 0.01 },
-                              { label: 'Frequency Penalty', key: 'frequency_penalty', min: -2, max: 2, step: 0.01 },
+                              { 
+                                label: 'Temperature', 
+                                key: 'temperature', 
+                                min: 0, max: 2, step: 0.01,
+                                tip: 'Controls randomness. Higher values (e.g. 1.0) make output more creative, lower values (e.g. 0.2) make it more focused and deterministic.'
+                              },
+                              { 
+                                label: 'Top-P (Nucleus)', 
+                                key: 'top_p', 
+                                min: 0, max: 1, step: 0.01,
+                                tip: 'Limits vocabulary to a subset whose cumulative probability is P. Helps balance diversity and quality.'
+                              },
+                              { 
+                                label: 'Top-K', 
+                                key: 'top_k', 
+                                min: 1, max: 100, step: 1,
+                                tip: 'Restricts the model to the top K most likely next tokens. Lower values make output more predictable.'
+                              },
+                              { 
+                                label: 'Repetition Penalty', 
+                                key: 'repetition_penalty', 
+                                min: 1, max: 2, step: 0.01,
+                                tip: 'Discourages the model from repeating the same words or phrases. Higher values (e.g. 1.2) reduce loopiness.'
+                              },
+                              { 
+                                label: 'Presence Penalty', 
+                                key: 'presence_penalty', 
+                                min: -2, max: 2, step: 0.01,
+                                tip: 'Positive values increase the model\'s likelihood of talking about new topics.'
+                              },
+                              { 
+                                label: 'Frequency Penalty', 
+                                key: 'frequency_penalty', 
+                                min: -2, max: 2, step: 0.01,
+                                tip: 'Reduces the chance of the model repeating the exact same lines of text.'
+                              },
                             ].map((param) => (
                               <div key={param.key} className="space-y-2">
-                                <div className="flex justify-between items-center">
-                                  <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">{param.label}</label>
+                                <div className="flex justify-between items-center group/tip relative">
+                                  <div className="flex items-center gap-1.5">
+                                    <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">{param.label}</label>
+                                    <div className="relative group/icon">
+                                      <Info className="w-3 h-3 text-zinc-600 hover:text-emerald-500 cursor-help transition-colors" />
+                                      <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-[10px] text-zinc-400 font-medium leading-relaxed shadow-xl opacity-0 group-hover/icon:opacity-100 pointer-events-none transition-opacity z-50">
+                                        {param.tip}
+                                      </div>
+                                    </div>
+                                  </div>
                                   <span className="text-xs font-mono text-emerald-500">{(settings as any)[param.key].toFixed(param.step < 1 ? 2 : 0)}</span>
                                 </div>
                                 <input 
@@ -1964,15 +2248,35 @@ export default function App() {
                     </AnimatePresence>
                   </div>
 
-                  <div className="p-4 bg-black/40 border-t border-zinc-800/50 flex justify-between items-center">
-                    <button
-                      onClick={() => setShowAddIdentityDialog(true)}
-                      className="px-4 py-2 bg-zinc-800 text-zinc-400 rounded-full font-semibold text-xs hover:bg-zinc-700 hover:text-white transition-all flex items-center gap-2 uppercase tracking-widest"
-                    >
-                      <Plus className="w-3 h-3" />
-                      Create New Bot
-                    </button>
-                    <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-600 italic">Settings save automatically</span>
+                  <div className="p-4 bg-black/40 border-t border-zinc-800/50 flex flex-col gap-3">
+                    {userPubkey ? (
+                      <button
+                        onClick={publishPersona}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-500 text-black rounded-xl font-bold text-xs hover:bg-emerald-400 transition-all uppercase tracking-widest shadow-lg shadow-emerald-500/10"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        Publish Persona to Network
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleNip07Login}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-zinc-800 text-zinc-400 rounded-xl font-bold text-xs hover:bg-zinc-700 hover:text-white transition-all uppercase tracking-widest"
+                      >
+                        <User className="w-3.5 h-3.5" />
+                        Sign In to Publish
+                      </button>
+                    )}
+                    
+                    <div className="flex justify-between items-center">
+                      <button
+                        onClick={() => setShowAddIdentityDialog(true)}
+                        className="px-4 py-2 bg-zinc-800 text-zinc-400 rounded-full font-semibold text-[10px] hover:bg-zinc-700 hover:text-white transition-all flex items-center gap-2 uppercase tracking-widest"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Create New Bot
+                      </button>
+                      <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-600 italic">Settings save automatically</span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1981,117 +2285,247 @@ export default function App() {
         </div>
       </main>
 
-      {/* Identity Manager Dialog */}
+      {/* Unified Identity & Discovery Manager */}
       <AnimatePresence>
-        {showIdentityManager && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
+        {showManager && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-0 md:p-12 bg-black/80 backdrop-blur-xl">
             <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
+              initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl"
+              exit={{ opacity: 0, scale: 0.98 }}
+              className="bg-zinc-900 border border-zinc-800 md:rounded-3xl w-full h-full max-w-6xl overflow-hidden shadow-2xl flex flex-col"
             >
-              <div className="p-6 border-b border-zinc-800 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Users className="w-5 h-5 text-emerald-500" />
-                  <h3 className="text-xl font-semibold text-white">Bot Identities</h3>
-                </div>
-                <button onClick={() => setShowIdentityManager(false)} className="text-zinc-500 hover:text-white transition-colors">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              
-              <div className="p-6 space-y-6 max-h-[60vh] overflow-y-auto custom-scrollbar">
-                <div className="flex items-center justify-between p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl">
-                  <div className="space-y-1">
-                    <div className="text-base font-medium text-white">Save Current Bot</div>
-                    <div className="text-xs text-zinc-500">Add your current configuration to the saved list.</div>
+              {/* Header / Tabs */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/50">
+                <div className="flex items-center gap-8">
+                  <div className="flex items-center gap-2">
+                    <Brain className="w-5 h-5 text-emerald-500" />
+                    <h3 className="text-xl font-bold text-white tracking-tight">Bot Central</h3>
                   </div>
-                  <button 
-                    onClick={() => {
-                      const name = prompt('Enter a name for this bot:');
-                      if (name) saveIdentity(name);
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-black rounded-full font-semibold text-sm hover:bg-emerald-400 transition-all"
-                  >
-                    <Save className="w-3 h-3" />
-                    Save Current
+                  <nav className="flex gap-1 p-1 bg-black/40 rounded-xl border border-zinc-800">
+                    <button 
+                      onClick={() => setManagerTab('local')}
+                      className={cn(
+                        "px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2",
+                        managerTab === 'local' ? "bg-zinc-800 text-emerald-400 shadow-inner" : "text-zinc-500 hover:text-zinc-300"
+                      )}
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      My Identities
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setManagerTab('community');
+                        fetchCommunityPersonas();
+                      }}
+                      className={cn(
+                        "px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2",
+                        managerTab === 'community' ? "bg-zinc-800 text-emerald-400 shadow-inner" : "text-zinc-500 hover:text-zinc-300"
+                      )}
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Marketplace
+                    </button>
+                  </nav>
+                </div>
+                <div className="flex items-center gap-4">
+                  {managerTab === 'community' && (
+                    <button 
+                      onClick={fetchCommunityPersonas}
+                      disabled={isDiscovering}
+                      className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-500 hover:text-white disabled:opacity-50"
+                    >
+                      <RefreshCw className={cn("w-4 h-4", isDiscovering && "animate-spin")} />
+                    </button>
+                  )}
+                  <button onClick={() => setShowManager(false)} className="text-zinc-500 hover:text-white transition-colors">
+                    <X className="w-6 h-6" />
                   </button>
                 </div>
-
-                <div className="space-y-3">
-                  <div className="text-xs font-bold uppercase tracking-widest text-zinc-500 px-1">Saved Bots</div>
-                  {savedIdentities.map((identity) => (
-                    <div key={identity.id} className={cn(
-                      "group flex items-center justify-between p-4 bg-black border rounded-2xl transition-colors",
-                      activeIdentityId === identity.id ? "border-emerald-500/50 bg-emerald-500/5" : "border-zinc-800 hover:border-zinc-700"
-                    )}>
-                      <div className="flex items-center gap-4 min-w-0 flex-1">
-                        <img 
-                          src={identity.settings.profile.picture} 
-                          alt="" 
-                          className="w-10 h-10 rounded-lg bg-zinc-800"
-                          crossOrigin="anonymous"
-                        />
-                        <div className="space-y-0.5 min-w-0 flex-1">
-                          <div className="text-base font-medium text-white truncate flex items-center gap-2">
-                            {identity.name}
-                            {activeIdentityId === identity.id && (
-                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 text-xs font-bold uppercase tracking-tighter">Active</span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 text-xs text-zinc-500">
-                            <span className="font-mono truncate">{nip19.npubEncode(getPublicKey(nip19.decode(identity.nsec).data as any)).substring(0, 12)}...</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
-                          onClick={() => loadIdentity(identity)}
-                          className="px-3 py-1.5 bg-zinc-800 text-white rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-zinc-700 transition-colors"
-                        >
-                          Load
-                        </button>
-                        <button 
-                          onClick={() => deleteIdentity(identity.id)}
-                          className="p-1.5 hover:bg-red-500/10 text-zinc-500 hover:text-red-500 rounded-lg transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  {savedIdentities.length === 0 && (
-                    <div className="text-center py-8 text-zinc-600 space-y-2">
-                      <p className="text-base italic">No saved bots yet.</p>
-                    </div>
-                  )}
-                </div>
               </div>
-              
-              <div className="p-6 bg-zinc-950 flex justify-between items-center">
-                <button
-                  onClick={() => {
-                    setShowIdentityManager(false);
-                    setShowAddIdentityDialog(true);
-                  }}
-                  className="flex items-center gap-2 px-6 py-2 bg-emerald-500 text-black rounded-full font-bold text-base hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/10"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add New Bot
-                </button>
-                <button
-                  onClick={() => setShowIdentityManager(false)}
-                  className="px-6 py-2 bg-zinc-800 text-white rounded-full font-semibold text-base hover:bg-zinc-700 transition-all"
-                >
-                  Close
-                </button>
+
+              {/* Main Content Area */}
+              <div className="flex-1 overflow-hidden flex">
+                {managerTab === 'local' ? (
+                  <div className="flex-1 flex flex-col min-w-0">
+                    <div className="p-4 border-b border-zinc-800/50 flex justify-between items-center bg-black/20">
+                      <div className="space-y-0.5">
+                        <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Saved Bots ({savedIdentities.length})</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => {
+                            const name = prompt('Enter a name for this bot:');
+                            if (name) saveIdentity(name);
+                          }}
+                          className="px-3 py-1.5 bg-zinc-800 text-zinc-300 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-zinc-700 transition-all flex items-center gap-2 border border-zinc-700"
+                        >
+                          <Save className="w-3 h-3" />
+                          Save Current
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setShowManager(false);
+                            setShowAddIdentityDialog(true);
+                          }}
+                          className="px-3 py-1.5 bg-emerald-500 text-black rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-400 transition-all flex items-center gap-2"
+                        >
+                          <Plus className="w-3 h-3" />
+                          New Bot
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                      {savedIdentities.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-30">
+                          <Users className="w-12 h-12" />
+                          <p className="text-sm font-medium italic">No saved bots yet.</p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {savedIdentities.map((identity) => (
+                            <div 
+                              key={identity.id}
+                              className={cn(
+                                "group p-3 rounded-2xl border transition-all flex items-center gap-3 relative overflow-hidden",
+                                activeIdentityId === identity.id 
+                                  ? "bg-emerald-500/5 border-emerald-500/30" 
+                                  : "bg-black/40 border-zinc-800 hover:border-zinc-700"
+                              )}
+                            >
+                              <img 
+                                src={identity.settings.profile.picture} 
+                                alt="" 
+                                className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 object-cover"
+                                crossOrigin="anonymous"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <h4 className="text-sm font-bold text-white truncate">{identity.name}</h4>
+                                <p className="text-[10px] text-zinc-500 font-mono truncate">{nip19.npubEncode(getPublicKey(nip19.decode(identity.nsec).data as any)).substring(0, 10)}...</p>
+                              </div>
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                {activeIdentityId !== identity.id && (
+                                  <button 
+                                    onClick={() => loadIdentity(identity)}
+                                    className="p-1.5 bg-zinc-800 text-emerald-400 rounded-lg hover:bg-emerald-500 hover:text-black transition-all"
+                                    title="Load Identity"
+                                  >
+                                    <Play className="w-3.5 h-3.5 fill-current" />
+                                  </button>
+                                )}
+                                <button 
+                                  onClick={() => deleteIdentity(identity.id)}
+                                  className="p-1.5 bg-zinc-800 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                              {activeIdentityId === identity.id && (
+                                <div className="absolute top-0 right-0 p-1">
+                                  <span className="px-1.5 py-0.5 bg-emerald-500 text-black text-[8px] font-black uppercase tracking-tighter rounded-bl-lg">Active</span>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col min-w-0">
+                    <div className="p-4 border-b border-zinc-800/50 flex justify-between items-center bg-black/20">
+                      <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Community Marketplace</p>
+                      <div className="flex items-center gap-3">
+                        {!userPubkey && (
+                          <button 
+                            onClick={handleNip07Login}
+                            className="text-[10px] font-bold text-emerald-500 hover:underline uppercase tracking-widest"
+                          >
+                            Sign In to Publish
+                          </button>
+                        )}
+                        <span className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest">Kind 38752</span>
+                      </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                      {isDiscovering && communityPersonas.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center space-y-4 opacity-40">
+                          <RefreshCw className="w-12 h-12 animate-spin text-emerald-500" />
+                          <p className="text-xs font-bold uppercase tracking-widest">Scanning Network...</p>
+                        </div>
+                      ) : communityPersonas.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-30">
+                          <Sparkles className="w-12 h-12" />
+                          <p className="text-sm font-medium italic">No community personas found.</p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                          {communityPersonas.map((persona) => (
+                            <div 
+                              key={persona.id}
+                              className="group bg-black/40 border border-zinc-800 rounded-2xl p-3 hover:border-emerald-500/30 transition-all flex flex-col gap-2"
+                            >
+                              <div className="flex items-center gap-3">
+                                <img 
+                                  src={persona.settings.profile.picture} 
+                                  alt="" 
+                                  className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 object-cover"
+                                  crossOrigin="anonymous"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <h4 className="text-xs font-bold text-white truncate">{persona.settings.profile.name}</h4>
+                                  <p className="text-[9px] text-zinc-500 font-mono truncate">by {persona.author.substring(0, 8)}...</p>
+                                </div>
+                              </div>
+                              <p className="text-[11px] text-zinc-400 line-clamp-2 italic leading-snug min-h-[32px]">
+                                {persona.settings.profile.about}
+                              </p>
+                              <div className="pt-1 flex items-center gap-2">
+                                <button
+                                  onClick={() => importPersona(persona)}
+                                  className="flex-1 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-[10px] font-bold uppercase tracking-widest text-zinc-300 hover:bg-emerald-500 hover:text-black hover:border-emerald-500 transition-all"
+                                >
+                                  Import
+                                </button>
+                                {userPubkey === persona.author && (
+                                  <button
+                                    onClick={() => unpublishPersona(persona.event)}
+                                    className="p-1.5 bg-red-900/20 border border-red-500/20 rounded-lg text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-3 bg-zinc-950 border-t border-zinc-800 flex justify-between items-center px-6">
+                <div className="flex items-center gap-4 text-[10px] text-zinc-600 font-bold uppercase tracking-widest">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    Local Database Sync
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                    Nostr Discovery Active
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className="text-[10px] text-zinc-700 font-bold uppercase tracking-widest">v0.1.0</span>
+                  <p className="text-[10px] text-zinc-500">Press ESC or click close to return</p>
+                </div>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
-
       {/* Add New Identity Selection Dialog */}
       <AnimatePresence>
         {showAddIdentityDialog && (
@@ -2270,6 +2704,21 @@ export default function App() {
                         )}
                       </div>
                     </div>
+
+                    <div className="pt-4 border-t border-zinc-800/50 space-y-3">
+                      <div className="flex items-center gap-2 text-red-500/80">
+                        <AlertCircle className="w-4 h-4" />
+                        <h4 className="text-xs font-bold uppercase tracking-widest">Danger Zone</h4>
+                      </div>
+                      <button
+                        onClick={handleFreshStart}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-red-900/20 text-red-500 border border-red-500/20 rounded-xl font-bold text-xs hover:bg-red-500 hover:text-white transition-all uppercase tracking-widest shadow-lg shadow-red-500/5"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Fresh Start
+                      </button>
+                      <p className="text-[10px] text-zinc-600 font-medium text-center italic">Clears all local data and resets the app.</p>
+                    </div>
                   </>
                 ) : (
                   <>
@@ -2280,75 +2729,77 @@ export default function App() {
                       </div>
                       <div className="space-y-3">
                         <div className="grid grid-cols-1 gap-2">
-                          {SUPPORTED_MODELS.map((model) => (
-                            <button
-                              key={model.id}
-                              onClick={() => setSettings(s => ({ ...s, modelId: model.id }))}
-                              className={cn(
-                                "p-3 rounded-2xl border text-left transition-all",
-                                settings.modelId === model.id
-                                  ? "bg-emerald-500/10 border-emerald-500"
-                                  : "bg-black border-zinc-800 hover:border-zinc-700"
-                              )}
-                            >
-                              <div className="flex justify-between items-center mb-1">
-                                <span className={cn(
-                                  "text-sm font-bold uppercase tracking-widest",
-                                  settings.modelId === model.id ? "text-emerald-500" : "text-white"
-                                )}>
-                                  {model.name}
-                                </span>
-                                <span className="text-[11px] font-mono text-zinc-500">{model.size}</span>
+                          {SUPPORTED_MODELS.map((model) => {
+                            const isSelected = settings.modelId === model.id;
+                            const isReady = isSelected && aiStatus === 'ready';
+                            const isLoading = isSelected && aiStatus === 'loading';
+
+                            return (
+                              <div
+                                key={model.id}
+                                className={cn(
+                                  "p-3 rounded-2xl border transition-all flex flex-col gap-3",
+                                  isSelected
+                                    ? "bg-emerald-500/5 border-emerald-500/30"
+                                    : "bg-black border-zinc-800"
+                                )}
+                              >
+                                <div className="flex justify-between items-start">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2 mb-0.5">
+                                      <span className={cn(
+                                        "text-sm font-bold uppercase tracking-widest",
+                                        isSelected ? "text-emerald-500" : "text-white"
+                                      )}>
+                                        {model.name}
+                                      </span>
+                                      <span className="text-[10px] font-mono text-zinc-500 bg-zinc-800/50 px-1.5 py-0.5 rounded leading-none">{model.size}</span>
+                                    </div>
+                                    <p className="text-[11px] text-zinc-500 leading-tight line-clamp-2">{model.description}</p>
+                                  </div>
+                                  
+                                  <div className="shrink-0">
+                                    {isReady ? (
+                                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                                        <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-500">Loaded</span>
+                                      </div>
+                                    ) : isLoading ? (
+                                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800 border border-zinc-700 rounded-lg">
+                                        <RefreshCw className="w-2.5 h-2.5 animate-spin text-zinc-400" />
+                                        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{Math.round(aiProgress)}%</span>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        onClick={() => {
+                                          setSettings(s => ({ ...s, modelId: model.id, useAI: true }));
+                                          if (aiStatus !== 'idle') setAiStatus('idle'); // Force reset to trigger load
+                                        }}
+                                        className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors border border-zinc-700"
+                                      >
+                                        Load Model
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {isLoading && (
+                                  <div className="space-y-1.5">
+                                    <div className="flex justify-between text-[9px] uppercase font-bold tracking-widest text-zinc-500 px-0.5">
+                                      <span className="truncate max-w-[180px]">{currentLoadingFile ? `Fetching ${currentLoadingFile}...` : 'Initializing...'}</span>
+                                    </div>
+                                    <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
+                                      <div 
+                                        className="h-full bg-emerald-500 transition-all duration-300 shadow-[0_0_8px_rgba(16,185,129,0.3)]" 
+                                        style={{ width: `${aiProgress}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
                               </div>
-                              <p className="text-[11px] text-zinc-500 leading-tight">{model.description}</p>
-                            </button>
-                          ))}
+                            );
+                          })}
                         </div>
-
-                        <label className="flex items-center justify-between p-3 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
-                          <div className="space-y-0.5">
-                            <div className="text-sm font-medium text-white">Enable On-Device AI</div>
-                            <div className="text-[11px] text-zinc-500">Local LLM for context-aware replies.</div>
-                          </div>
-                          <div className={cn(
-                            "w-8 h-4 rounded-full transition-all relative",
-                            settings.useAI ? "bg-emerald-500" : "bg-zinc-800"
-                          )}>
-                            <input 
-                              type="checkbox"
-                              checked={settings.useAI}
-                              onChange={(e) => setSettings(s => ({ ...s, useAI: e.target.checked }))}
-                              className="sr-only"
-                            />
-                            <div className={cn(
-                              "absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all",
-                              settings.useAI ? "left-4.5" : "left-0.5"
-                            )} />
-                          </div>
-                        </label>
-
-                        {settings.useAI && (aiStatus === 'loading' || aiStatus === 'idle') && (
-                          <div className="p-3 bg-zinc-900/50 border border-zinc-800 rounded-xl space-y-2">
-                            <div className="flex justify-between text-[11px] uppercase font-bold tracking-widest text-zinc-500">
-                              <span className="truncate max-w-[150px]">{currentLoadingFile ? `Loading ${currentLoadingFile}...` : 'Initializing...'}</span>
-                              <span>{Math.round(aiProgress)}%</span>
-                            </div>
-                            <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
-                              <div 
-                                className="h-full bg-emerald-500 transition-all duration-300" 
-                                style={{ width: `${aiProgress}%` }}
-                              />
-                            </div>
-                            <p className="text-xs text-zinc-500 italic">One-time download, cached after.</p>
-                          </div>
-                        )}
-                        
-                        {aiStatus === 'ready' && (
-                          <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-xl flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-                            <span className="text-xs font-bold uppercase tracking-widest text-emerald-500">Brain Loaded & Ready</span>
-                          </div>
-                        )}
                       </div>
                     </div>
                   </>
@@ -2495,6 +2946,188 @@ export default function App() {
           background: #3f3f46;
         }
       `}</style>
+
+      {/* Onboarding Wizard */}
+      <AnimatePresence>
+        {showOnboarding && (
+          <OnboardingWizard
+            onFinish={handleFinishOnboarding}
+            defaultSettings={DEFAULT_SETTINGS}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// --- Onboarding Component ---
+
+function OnboardingWizard({ onFinish, defaultSettings }: { onFinish: (settings: BotSettings) => void, defaultSettings: BotSettings }) {
+  const [step, setStep] = useState(1);
+  const [tempSettings, setTempSettings] = useState<BotSettings>({
+    ...defaultSettings,
+    modelId: 'onnx-community/SmolLM2-360M-Instruct-ONNX', // Default to balanced
+    profile: {
+      ...defaultSettings.profile,
+      name: 'My EchoBot'
+    }
+  });
+
+  const deviceCores = navigator.hardwareConcurrency || 4;
+  const deviceMemory = (navigator as any).deviceMemory || 0;
+
+  const handleFinish = () => {
+    onFinish(tempSettings);
+  };
+
+  const modelCards = [
+    {
+      id: 'onnx-community/gemma-3-270m-it-ONNX',
+      name: 'Lightweight',
+      modelName: 'Gemma 3 270M',
+      description: 'Fastest with the lowest memory usage. Ideal for older devices or quick, simple replies.',
+      recommended: deviceMemory > 0 && deviceMemory < 4,
+    },
+    {
+      id: 'onnx-community/SmolLM2-360M-Instruct-ONNX',
+      name: 'Balanced',
+      modelName: 'SmolLM2 360M',
+      description: 'The sweet spot. Great performance and instruction-following for most modern desktops and laptops.',
+      recommended: (deviceMemory === 0) || (deviceMemory >= 4 && deviceMemory < 8),
+    },
+    {
+      id: 'onnx-community/Llama-3.2-1B-Instruct',
+      name: 'Powerhouse',
+      modelName: 'Llama 3.2 1B',
+      description: 'Superior reasoning and personality. Recommended for devices with a fast CPU and 8GB+ RAM.',
+      recommended: deviceMemory >= 8,
+    }
+  ];
+
+  const personaVibes = [
+    { name: 'Helpful Assistant', prompt: MODEL_DEFAULT_PROMPTS[tempSettings.modelId]?.neutral || MODEL_DEFAULT_PROMPTS[modelCards[0].id].neutral },
+    { name: 'Playful Waifu', prompt: MODEL_DEFAULT_PROMPTS[tempSettings.modelId]?.waifu || MODEL_DEFAULT_PROMPTS[modelCards[0].id].waifu },
+    { name: 'Concise & Professional', prompt: 'You are {name}, a highly professional AI. Your responses are always concise, clear, and focused on the query. You do not use slang or emojis.' },
+    { name: 'Chaotic Gremlin', prompt: 'You are {name}, a chaotic gremlin. You love short, witty, and slightly unhinged replies. You use a lot of memespeak and lowercase letters.' },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/90 backdrop-blur-xl">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-2xl"
+      >
+        <AnimatePresence mode="wait">
+          {step === 1 && (
+            <motion.div key="step1" exit={{ opacity: 0, x: -50 }} className="space-y-8">
+              <div className="text-center space-y-2">
+                <h1 className="text-3xl font-bold text-white">Welcome to EchoBot</h1>
+                <p className="text-lg text-zinc-400">Let's set up your first autonomous AI persona.</p>
+              </div>
+              <div className="p-6 bg-zinc-900/50 border border-zinc-800/50 rounded-3xl space-y-5">
+                <h2 className="text-sm font-bold uppercase tracking-widest text-emerald-500 flex items-center gap-2">
+                  <Brain className="w-4 h-4" />
+                  Step 1: Choose a Brain
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {modelCards.map(card => (
+                    <button
+                      key={card.id}
+                      onClick={() => setTempSettings(s => ({ ...s, modelId: card.id }))}
+                      className={cn(
+                        "p-4 rounded-2xl border transition-all text-left space-y-2",
+                        tempSettings.modelId === card.id 
+                          ? "bg-emerald-500/10 border-emerald-500/50" 
+                          : "bg-black/50 border-zinc-800 hover:border-zinc-700"
+                      )}
+                    >
+                      <h3 className="text-base font-bold text-white">{card.name}</h3>
+                      <p className="text-[11px] text-zinc-400 font-medium">{card.modelName}</p>
+                      <p className="text-xs text-zinc-500">{card.description}</p>
+                      {card.recommended && (
+                        <div className="pt-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 bg-emerald-500/10 text-emerald-400 rounded-full">Recommended</span>
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-center text-zinc-600 font-mono">
+                  Device: {deviceCores} Cores / {deviceMemory > 0 ? `${deviceMemory}GB RAM` : 'RAM N/A'}
+                </p>
+              </div>
+              <div className="text-center">
+                <button
+                  onClick={() => setStep(2)}
+                  className="px-8 py-3 bg-emerald-500 text-black rounded-full font-bold text-lg hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20"
+                >
+                  Next: Create Persona
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {step === 2 && (
+            <motion.div key="step2" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} className="space-y-8">
+              <div className="text-center space-y-2">
+                <h1 className="text-3xl font-bold text-white">Bot Persona</h1>
+                <p className="text-lg text-zinc-400">Give your AI a name and a starting personality.</p>
+              </div>
+              <div className="p-6 bg-zinc-900/50 border border-zinc-800/50 rounded-3xl space-y-5">
+                <h2 className="text-sm font-bold uppercase tracking-widest text-emerald-500 flex items-center gap-2">
+                  <User className="w-4 h-4" />
+                  Step 2: Choose a Soul
+                </h2>
+                
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Bot Name</label>
+                  <input 
+                    type="text"
+                    value={tempSettings.profile.name}
+                    onChange={(e) => setTempSettings(s => ({ ...s, profile: { ...s.profile, name: e.target.value } }))}
+                    className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-lg focus:outline-none focus:border-emerald-500/50 transition-colors"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Starting Vibe</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {personaVibes.map(vibe => (
+                      <button
+                        key={vibe.name}
+                        onClick={() => setTempSettings(s => ({ ...s, aiSystemPrompt: vibe.prompt }))}
+                        className={cn(
+                          "p-3 rounded-xl border text-left transition-all",
+                          tempSettings.aiSystemPrompt === vibe.prompt
+                            ? "bg-emerald-500/10 border-emerald-500/50" 
+                            : "bg-black/50 border-zinc-800 hover:border-zinc-700"
+                        )}
+                      >
+                        <h4 className="text-sm font-bold text-white">{vibe.name}</h4>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-center items-center gap-4">
+                <button
+                  onClick={() => setStep(1)}
+                  className="px-6 py-2 bg-zinc-800 text-zinc-300 rounded-full font-bold text-base hover:bg-zinc-700 transition-all"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleFinish}
+                  className="px-8 py-3 bg-emerald-500 text-black rounded-full font-bold text-lg hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20"
+                >
+                  Finish & Launch
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
     </div>
   );
 }
