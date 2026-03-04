@@ -782,6 +782,13 @@ export default function App() {
 
   // Initialize identity and settings on load
   useEffect(() => {
+    // Log isolation status for debugging
+    if (self.crossOriginIsolated) {
+      addLog('Environment is Cross-Origin Isolated. Multi-threading enabled.', 'info');
+    } else {
+      addLog('Environment is NOT Cross-Origin Isolated. Multi-threading will be limited.', 'warning');
+    }
+
     // 1. Load Saved Identities
     const saved = localStorage.getItem(STORAGE_KEY_SAVED_IDENTITIES);
     let loadedIdentities: Identity[] = [];
@@ -1531,8 +1538,8 @@ export default function App() {
                   alt="Avatar" 
                   className="w-10 h-10 rounded-lg bg-zinc-800 border border-zinc-700"
                   referrerPolicy="no-referrer"
-                />
-                <div className="min-w-0 flex-1">
+                  crossOrigin="anonymous"
+                />                <div className="min-w-0 flex-1">
                   <div className="text-base font-medium text-white truncate flex items-center gap-2">
                     {settings.profile.name || 'Anonymous'}
                   </div>
@@ -2024,6 +2031,7 @@ export default function App() {
                           src={identity.settings.profile.picture} 
                           alt="" 
                           className="w-10 h-10 rounded-lg bg-zinc-800"
+                          crossOrigin="anonymous"
                         />
                         <div className="space-y-0.5 min-w-0 flex-1">
                           <div className="text-base font-medium text-white truncate flex items-center gap-2">

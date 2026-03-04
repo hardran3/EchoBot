@@ -5,9 +5,15 @@ import { pipeline, env } from '@huggingface/transformers';
 env.allowLocalModels = false;
 env.allowRemoteModels = true;
 
-// Optimize for browser environment
-env.backends.onnx.wasm.numThreads = navigator.hardwareConcurrency || 4;
-env.backends.onnx.wasm.proxy = true;
+// Optimize for browser environment with safety limits
+const coreCount = navigator.hardwareConcurrency || 4;
+if (self.crossOriginIsolated) {
+    env.backends.onnx.wasm.numThreads = Math.min(coreCount, 4); 
+    console.log(`[Worker] Environment is Cross-Origin Isolated. Threads: ${env.backends.onnx.wasm.numThreads}`);
+} else {
+    console.warn(`[Worker] Environment is NOT Cross-Origin Isolated. Fallback to single-threaded mode.`);
+}
+env.backends.onnx.wasm.proxy = false; // Already in a worker, no need for proxying to another worker
 
 // Point to the CDN for WASM files to keep the build size small
 const CDN_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/';
@@ -32,36 +38,37 @@ self.addEventListener('message', async (event: any) => {
         try {
             self.postMessage({ type: 'status', data: `Initializing Brain (${model_id.split('/').pop()})...` });
             
-            // Check for WebGPU support
-            const isWebGPUSupported = 'gpu' in navigator;
-            const device = isWebGPUSupported ? 'webgpu' : 'wasm';
+            const isWebGPUSupported = 'gpu' in navigator && !!(await (navigator as any).gpu.requestAdapter());
             
+            if (isWebGPUSupported) {
+                try {
+                    generator = await pipeline('text-generation', model_id, {
+                        device: 'webgpu',
+                        dtype: 'q4', 
+                        progress_callback: (p: any) => {
+                            self.postMessage({ type: 'progress', data: p });
+                        }
+                    });
+                    self.postMessage({ type: 'ready' });
+                    return;
+                } catch (webgpuError: any) {
+                    console.warn('WebGPU init failed, falling back to WASM:', webgpuError.message);
+                }
+            }
+
+            // Fallback to WASM
             generator = await pipeline('text-generation', model_id, {
-                device: device,
-                // FORCE q4 for both WebGPU and WASM. 
-                // Using fp32 on WebGPU for even small models causes massive disk/memory spikes.
-                dtype: 'q4', 
+                device: 'wasm',
+                dtype: 'q4',
                 progress_callback: (p: any) => {
                     self.postMessage({ type: 'progress', data: p });
                 }
             });
-
             self.postMessage({ type: 'ready' });
+
         } catch (e: any) {
-            console.warn('Initialization failed:', e.message);
-            try {
-                // Fallback attempt
-                generator = await pipeline('text-generation', model_id, {
-                    device: 'wasm',
-                    dtype: 'q4',
-                    progress_callback: (p: any) => {
-                        self.postMessage({ type: 'progress', data: p });
-                    }
-                });
-                self.postMessage({ type: 'ready' });
-            } catch (err: any) {
-                self.postMessage({ type: 'error', data: err.message });
-            }
+            console.error('All backends failed:', e);
+            self.postMessage({ type: 'error', data: `Engine initialization failed: ${e.message}` });
         }
     } else if (type === 'generate') {
         if (!generator) {
@@ -88,6 +95,8 @@ self.addEventListener('message', async (event: any) => {
                 top_k,
                 repetition_penalty,
                 return_full_text: false,
+            }).catch((err: any) => {
+                throw new Error(`Pipeline execution failed: ${err.message}`);
             });
             
             let output = '';
