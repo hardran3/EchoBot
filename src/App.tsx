@@ -112,6 +112,8 @@ interface BotSettings {
   profile: ProfileInfo;
   reactToNotes: boolean;
   reactionEmojis: string;
+  repostNotes: boolean;
+  autoFollowBack: boolean;
   useAI: boolean;
   aiSystemPrompt: string;
   modelId: string;
@@ -446,6 +448,8 @@ const DEFAULT_SETTINGS: BotSettings = {
   },
   reactToNotes: false,
   reactionEmojis: DEFAULT_REACTION_EMOJIS,
+  repostNotes: false,
+  autoFollowBack: false,
   useAI: false,
   aiSystemPrompt: MODEL_DEFAULT_PROMPTS[SUPPORTED_MODELS[0].id].neutral,
   modelId: SUPPORTED_MODELS[0].id,
@@ -518,7 +522,7 @@ export default function App() {
     return localStorage.getItem(STORAGE_KEY_GLOBAL_LIGHTNING_SYNC) === 'true';
   });
   const [rightTab, setRightTab] = useState<'timeline' | 'persona'>('timeline');
-  const [personaSubTab, setPersonaSubTab] = useState<'profile' | 'prompt' | 'tuning' | 'reactions'>('profile');
+  const [personaSubTab, setPersonaSubTab] = useState<'profile' | 'prompt' | 'tuning' | 'behavior'>('profile');
   const [showIdentityManager, setShowIdentityManager] = useState(false);
   const [showAddIdentityDialog, setShowAddIdentityDialog] = useState(false);
   const [showEmojiPickerDialog, setShowEmojiPickerDialog] = useState(false);
@@ -644,7 +648,7 @@ export default function App() {
     }
   };
 
-  async function generateBotMessage(targetNpub?: string, content?: string): Promise<string> {
+  async function generateBotMessage(targetNpub?: string, content?: string, context?: { pubkey: string; content: string }[]): Promise<string> {
     if (!settings.useAI || aiStatus !== 'ready' || !aiWorkerRef.current || !content) {
       addLog('AI Brain is not ready. Skipping reply.', 'warning');
       return '';
@@ -659,12 +663,18 @@ export default function App() {
       const hiddenRules = MODEL_HIDDEN_RULES[settings.modelId] || "";
       const fullSystemPrompt = `${hiddenRules}\n\n${userPersona}`;
 
+      // Format thread context for the AI
+      const threadContext = (context || []).map(msg => ({
+        role: 'user',
+        content: `[Context from ${msg.pubkey.substring(0, 8)}]: ${msg.content}`
+      }));
+
       const rawMessages = [
         { role: 'system', content: fullSystemPrompt },
+        ...threadContext,
         ...history,
         { role: 'user', content }
       ];
-
       const messages = sanitizeConversationHistory(rawMessages);
 
       const aiPromise = new Promise<string>((resolve) => {
@@ -1947,11 +1957,29 @@ export default function App() {
 
           if (!identity || !poolRef.current) return;
 
-          const message = await generateBotMessage(settings.targetNpub, event.content);
+          // --- NEW: Fetch thread context ---
+          const eTags = event.tags.filter((t: any) => t[0] === 'e');
+          const contextEvents: { pubkey: string; content: string; created_at: number }[] = [];
+          
+          if (eTags.length > 0) {
+            const parentIds = eTags.map((t: any) => t[1]);
+            try {
+              const fetchedContext = await poolRef.current.querySync([...new Set([...relays, ...SEARCH_RELAYS])], {
+                ids: parentIds,
+                kinds: [1]
+              });
+              contextEvents.push(...fetchedContext.map(ev => ({
+                pubkey: ev.pubkey,
+                content: ev.content,
+                created_at: ev.created_at
+              })).sort((a, b) => a.created_at - b.created_at));
+            } catch (e) {}
+          }
+
+          const message = await generateBotMessage(settings.targetNpub, event.content, contextEvents);
           if (!message) return;
           
           // Improved NIP-10 tagging
-          const eTags = event.tags.filter((t: any) => t[0] === 'e');
           const rootTag = eTags.find((t: any) => t[3] === 'root') || eTags[0];
           
           const tags: string[][] = [];
@@ -2045,6 +2073,88 @@ export default function App() {
             }
           }
         });
+      });
+    };
+
+    const scheduleRepost = (event: any, relays: string[]) => {
+      if (!settings.repostNotes) return;
+
+      addTaskToQueue({
+        id: `repost-${event.id}-${Math.random()}`,
+        description: `Repost ${event.id.substring(0, 8)}`,
+        execute: async () => {
+          if (!currentIdentity || !poolRef.current) return;
+          
+          const repostEvent = finalizeEvent({
+            kind: 6,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [
+              ['e', event.id, '', 'mention'],
+              ['p', event.pubkey]
+            ],
+            content: '',
+          }, currentIdentity.sk);
+
+          const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
+          try {
+            const pubs = poolRef.current.publish(allRelays, repostEvent);
+            const results = await Promise.allSettled(pubs);
+            const successCount = results.filter(r => r.status === 'fulfilled').length;
+
+            if (successCount > 0) {
+              addLog(`Reposted note ${event.id.substring(0, 8)}...`, 'success');
+            } else {
+              addLog(`Failed to publish repost.`, 'error');
+            }
+          } catch (e) {
+            addLog(`Failed to broadcast repost.`, 'error');
+          }
+        }
+      });
+    };
+
+    const scheduleFollow = (pubkey: string, relays: string[]) => {
+      if (!settings.autoFollowBack) return;
+
+      addTaskToQueue({
+        id: `follow-${pubkey}-${Math.random()}`,
+        description: `Follow ${pubkey.substring(0, 8)}`,
+        execute: async () => {
+          if (!currentIdentity || !poolRef.current) return;
+          
+          // Get current follow list
+          const currentFollows = await poolRef.current.get(SEARCH_RELAYS, {
+            kinds: [3],
+            authors: [currentIdentity.pk]
+          });
+
+          const tags = currentFollows ? currentFollows.tags : [];
+          // Check if already following
+          if (tags.some((t: string[]) => t[0] === 'p' && t[1] === pubkey)) return;
+
+          const newTags = [...tags, ['p', pubkey]];
+          const followEvent = finalizeEvent({
+            kind: 3,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: newTags,
+            content: '',
+          }, currentIdentity.sk);
+
+          const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
+          try {
+            const pubs = poolRef.current.publish(allRelays, followEvent);
+            const results = await Promise.allSettled(pubs);
+            const successCount = results.filter(r => r.status === 'fulfilled').length;
+
+            if (successCount > 0) {
+              addLog(`Followed back ${pubkey.substring(0, 8)}...`, 'success');
+            } else {
+              addLog(`Failed to publish follow event.`, 'error');
+            }
+          } catch (e) {
+            addLog(`Failed to broadcast follow event.`, 'error');
+          }
+        }
       });
     };
 
@@ -2143,8 +2253,14 @@ export default function App() {
       // Track received stats
       const mentionsSelf = event.tags.some((t: any) => t[0] === 'p' && t[1] === currentIdentity!.pk);
       if (mentionsSelf && activeIdentityId) {
-        if (event.kind === 1) updateIdentityStats(activeIdentityId, { repliesReceived: 1 });
-        if (event.kind === 7) updateIdentityStats(activeIdentityId, { reactionsReceived: 1 });
+        if (event.kind === 1) {
+          updateIdentityStats(activeIdentityId, { repliesReceived: 1 });
+          if (settings.autoFollowBack) scheduleFollow(event.pubkey, targetRelays);
+        }
+        if (event.kind === 7) {
+          updateIdentityStats(activeIdentityId, { reactionsReceived: 1 });
+          if (settings.autoFollowBack) scheduleFollow(event.pubkey, targetRelays);
+        }
       }
 
       if (event.kind === 7) return; // Don't process reactions further
@@ -2183,6 +2299,11 @@ export default function App() {
         addLog(`New note from target: ${event.id.substring(0, 8)}...`, 'success', event.pubkey);
         scheduleReply(event, targetRelays);
         scheduleReactions(event, targetRelays, false);
+        
+        // --- NEW: Repost logic ---
+        if (settings.repostNotes && !isReply && Math.random() < 0.1) {
+           scheduleRepost(event, targetRelays);
+        }
       }
     };
 
@@ -2613,7 +2734,7 @@ export default function App() {
                       { id: 'profile', label: 'Profile', icon: User },
                       { id: 'prompt', label: 'System Prompt', icon: MessageSquare },
                       { id: 'tuning', label: 'Tuning', icon: SettingsIcon },
-                      { id: 'reactions', label: 'Reactions', icon: Heart }
+                      { id: 'behavior', label: 'Behavior', icon: Wand2 }
                     ].map(tab => (                      <button
                         key={tab.id}
                         onClick={() => setPersonaSubTab(tab.id as any)}
@@ -2817,19 +2938,20 @@ export default function App() {
                         </motion.div>
                       )}
 
-                      {personaSubTab === 'reactions' && (
+                      {personaSubTab === 'behavior' && (
                         <motion.div
-                          key="reactions"
+                          key="behavior"
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -10 }}
                           className="space-y-6"
                         >
                           <div className="space-y-4">
+                            {/* Reactions Toggle */}
                             <label className="flex items-center justify-between p-4 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
                               <div className="space-y-1">
                                 <div className="text-base font-bold text-white uppercase tracking-wider">Enable Reactions</div>
-                                <div className="text-xs text-zinc-500">The bot will send your custom emojis to the target's notes.</div>
+                                <div className="text-xs text-zinc-500 text-balance">The bot will send your custom emojis to the target's notes.</div>
                               </div>
                               <div className={cn(
                                 "w-10 h-5 rounded-full transition-all relative",
@@ -2867,12 +2989,55 @@ export default function App() {
                                       <Sparkles className="w-5 h-5" />
                                     </button>
                                   </div>
-                                  <p className="text-[11px] text-zinc-500 italic">
-                                    The bot will pick one random emoji from this list for each reaction.
-                                  </p>
                                 </div>
                               </div>
                             )}
+
+                            {/* Repost Toggle */}
+                            <label className="flex items-center justify-between p-4 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
+                              <div className="space-y-1">
+                                <div className="text-base font-bold text-white uppercase tracking-wider">Enable Reposting</div>
+                                <div className="text-xs text-zinc-500 text-balance">The bot will occasionally repost the target's new notes to its own timeline.</div>
+                              </div>
+                              <div className={cn(
+                                "w-10 h-5 rounded-full transition-all relative",
+                                settings.repostNotes ? "bg-emerald-500" : "bg-zinc-800"
+                              )}>
+                                <input 
+                                  type="checkbox" 
+                                  checked={settings.repostNotes}
+                                  onChange={(e) => setSettings(s => ({ ...s, repostNotes: e.target.checked }))}
+                                  className="sr-only"
+                                />
+                                <div className={cn(
+                                  "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
+                                  settings.repostNotes ? "left-6" : "left-1"
+                                )} />
+                              </div>
+                            </label>
+
+                            {/* Auto Follow Back Toggle */}
+                            <label className="flex items-center justify-between p-4 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
+                              <div className="space-y-1">
+                                <div className="text-base font-bold text-white uppercase tracking-wider">Follow Back Users</div>
+                                <div className="text-xs text-zinc-500 text-balance">Automatically follow users who interact with the bot's notes.</div>
+                              </div>
+                              <div className={cn(
+                                "w-10 h-5 rounded-full transition-all relative",
+                                settings.autoFollowBack ? "bg-emerald-500" : "bg-zinc-800"
+                              )}>
+                                <input 
+                                  type="checkbox" 
+                                  checked={settings.autoFollowBack}
+                                  onChange={(e) => setSettings(s => ({ ...s, autoFollowBack: e.target.checked }))}
+                                  className="sr-only"
+                                />
+                                <div className={cn(
+                                  "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
+                                  settings.autoFollowBack ? "left-6" : "left-1"
+                                )} />
+                              </div>
+                            </label>
                           </div>
                         </motion.div>
                       )}
@@ -2981,7 +3146,7 @@ export default function App() {
                   <div className="flex-1 flex flex-col min-w-0">
                     <div className="p-4 border-b border-zinc-800/50 flex justify-between items-center bg-black/20">
                       <div className="space-y-0.5">
-                        <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Saved Bots ({savedIdentities.length})</p>
+                        <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Saved Bots ({savedIdentities.filter(i => !i.deleted).length})</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <button 
