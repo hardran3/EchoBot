@@ -70,6 +70,7 @@ interface LogEntry {
   timestamp: number;
   type: 'info' | 'success' | 'warning' | 'error';
   message: string;
+  pubkey?: string;
 }
 interface ProfileInfo {
   name: string;
@@ -488,7 +489,7 @@ export default function App() {
   const [globalUseCuratorLightning, setGlobalUseCuratorLightning] = useState(() => {
     return localStorage.getItem('echobot_global_lightning_sync') === 'true';
   });
-  const [rightTab, setRightTab] = useState<'log' | 'persona'>('log');
+  const [rightTab, setRightTab] = useState<'timeline' | 'persona'>('timeline');
   const [personaSubTab, setPersonaSubTab] = useState<'profile' | 'prompt' | 'tuning' | 'reactions'>('profile');
   const [showIdentityManager, setShowIdentityManager] = useState(false);
   const [showAddIdentityDialog, setShowAddIdentityDialog] = useState(false);
@@ -706,12 +707,13 @@ export default function App() {
   const taskQueueRef = useRef<BotTask[]>([]);
   const isProcessingQueueRef = useRef(false);
   // Log helper
-  const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
+  const addLog = useCallback((message: string, type: LogEntry['type'] = 'info', pubkey?: string) => {
     setLogs(prev => [{
       id: Math.random().toString(36).substring(7),
       timestamp: Date.now(),
       type,
-      message
+      message,
+      pubkey
     }, ...prev].slice(0, 100));
   }, []);
 
@@ -952,35 +954,80 @@ export default function App() {
       authors: [pubkey]
     });
 
+    let profile: ProfileInfo;
     if (profileEvent) {
       try {
         const content = JSON.parse(profileEvent.content);
-        setCuratorProfile({
-          name: content.name || `NIP-07 User`,
+        profile = {
+          name: content.name || content.display_name || `NIP-07 User`,
           about: content.about || '',
           picture: content.picture || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${pubkey}`,
           nip05: content.nip05 || '',
           lud16: content.lud16 || content.lightning_address || ''
-        });
+        };
       } catch (e) {
-        setCuratorProfile({
+        profile = {
           name: `NIP-07 User`,
           about: '',
           picture: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${pubkey}`,
           nip05: '',
           lud16: ''
-        });
+        };
       }
     } else {
-      setCuratorProfile({
+      profile = {
         name: `NIP-07 User`,
         about: '',
         picture: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${pubkey}`,
         nip05: '',
         lud16: ''
-      });
+      };
     }
+    setCuratorProfile(profile);
+    setCommunityProfiles(prev => ({ ...prev, [pubkey]: profile }));
   };
+
+  const fetchProfiles = useCallback(async (pubkeys: string[]) => {
+    if (!poolRef.current || pubkeys.length === 0) return;
+    
+    // Filter out already cached profiles
+    const toFetch = pubkeys.filter(pk => !communityProfiles[pk]);
+    if (toFetch.length === 0) return;
+
+    try {
+      const metadataEvents = await poolRef.current.querySync(SEARCH_RELAYS, {
+        kinds: [0],
+        authors: toFetch
+      });
+
+      const profileMap: Record<string, ProfileInfo> = {};
+      metadataEvents.forEach(ev => {
+        try {
+          const content = JSON.parse(ev.content);
+          profileMap[ev.pubkey] = {
+            name: content.name || content.display_name || 'Anonymous',
+            about: content.about || '',
+            picture: content.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${ev.pubkey}`,
+            nip05: content.nip05 || '',
+            lud16: content.lud16 || '',
+            lud06: content.lud06 || ''
+          };
+        } catch (e) {}
+      });
+      setCommunityProfiles(prev => ({ ...prev, ...profileMap }));
+    } catch (e) {}
+  }, [communityProfiles]);
+
+  // Auto-fetch profiles for logs
+  useEffect(() => {
+    const logPubkeys = logs
+      .map(l => l.pubkey)
+      .filter((pk): pk is string => !!pk && !communityProfiles[pk]);
+    
+    if (logPubkeys.length > 0) {
+      fetchProfiles([...new Set(logPubkeys)]);
+    }
+  }, [logs, communityProfiles, fetchProfiles]);
 
   const handleLogout = () => {
     setUserPubkey(null);
@@ -1834,7 +1881,7 @@ export default function App() {
 
     // 3. Publish initial profile
     if (currentIdentity) {
-      addLog(`Starting with identity: ${settings.profile.name} (${nip19.npubEncode(currentIdentity.pk).substring(0, 12)}...)`, 'info');
+      addLog(`Starting with identity: ${settings.profile.name} (${nip19.npubEncode(currentIdentity.pk).substring(0, 12)}...)`, 'info', currentIdentity.pk);
       await publishProfile(currentIdentity.sk, settings.profile, targetRelays);
     }
 
@@ -1938,7 +1985,7 @@ export default function App() {
       
       // Check if it's a mention/reply to us from someone else
       if (mentionsSelf && event.pubkey !== targetHex) {
-        addLog(`New mention/reply from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success');
+        addLog(`New mention/reply from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey);
         scheduleReply(event, targetRelays);
         scheduleReactions(event, targetRelays, true);
         return;
@@ -1948,7 +1995,7 @@ export default function App() {
         if (eTags.length > 0 && isReply) {
           // If the target is replying specifically to us, always reply back
           if (mentionsSelf) {
-            addLog(`Target replied to us! ${event.id.substring(0, 8)}...`, 'success');
+            addLog(`Target replied to us! ${event.id.substring(0, 8)}...`, 'success', event.pubkey);
             scheduleReply(event, targetRelays);
             scheduleReactions(event, targetRelays, true);
             return;
@@ -1956,15 +2003,15 @@ export default function App() {
 
           // Otherwise it's just a general comment/reply from the target. React to 1/3 of them.
           if (Math.random() < 0.33) {
-            addLog(`Reacting to target's comment: ${event.id.substring(0, 8)}...`, 'success');
+            addLog(`Reacting to target's comment: ${event.id.substring(0, 8)}...`, 'success', event.pubkey);
             scheduleReactions(event, targetRelays, true);
           } else if (isVerbose) {
-            addLog(`Skipped reaction for target's comment: ${event.id.substring(0, 8)}`, 'info');
+            addLog(`Skipped reaction for target's comment: ${event.id.substring(0, 8)}`, 'info', event.pubkey);
           }
           return;
         }
 
-        addLog(`New note from target: ${event.id.substring(0, 8)}...`, 'success');
+        addLog(`New note from target: ${event.id.substring(0, 8)}...`, 'success', event.pubkey);
         scheduleReply(event, targetRelays);
         scheduleReactions(event, targetRelays, false);
       }
@@ -2118,10 +2165,6 @@ export default function App() {
                     )}
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-2 bg-emerald-500/5 border border-emerald-500/10 rounded-lg">
-                <Info className="w-3 h-3 text-emerald-500" />
-                <span className="text-xs text-emerald-500/80">Identity is persisted in your browser.</span>
               </div>
             </div>
           </section>
@@ -2286,17 +2329,17 @@ export default function App() {
         <div className="lg:col-span-7">
           <section className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl h-full flex flex-col overflow-hidden">
             <div className="flex border-b border-zinc-800/50">
-              <button 
-                onClick={() => setRightTab('log')}
+              <button
+                onClick={() => setRightTab('timeline')}
                 className={cn(
                   "flex-1 py-4 text-xs font-bold uppercase tracking-widest transition-all border-b-2 flex items-center justify-center gap-2",
-                  rightTab === 'log' ? "text-emerald-500 border-emerald-500 bg-emerald-500/5" : "text-zinc-500 border-transparent hover:text-zinc-300"
+                  rightTab === 'timeline' ? "text-emerald-500 border-emerald-500 bg-emerald-500/5" : "text-zinc-500 border-transparent hover:text-zinc-300"
                 )}
               >
                 <Activity className="w-3 h-3" />
-                Activity Log
+                Timeline
               </button>
-              <button 
+              <button
                 onClick={() => setRightTab('persona')}
                 className={cn(
                   "flex-1 py-4 text-xs font-bold uppercase tracking-widest transition-all border-b-2 flex items-center justify-center gap-2",
@@ -2309,8 +2352,7 @@ export default function App() {
             </div>
 
             <div className="flex-1 flex flex-col min-h-0">
-              {rightTab === 'log' ? (
-                <>
+              {rightTab === 'timeline' ? (                <>
                   <div className="p-4 border-b border-zinc-800/30 flex items-center justify-between bg-black/20">
                     <div className="flex items-center gap-4">
                       <label className="flex items-center gap-2 cursor-pointer group">
@@ -2346,30 +2388,51 @@ export default function App() {
                       {logs
                         .filter(log => isVerbose || log.type !== 'info')
                         .map((log) => (
-                        <motion.div                          key={log.id}
+                        <motion.div
+                          key={log.id}
                           initial={{ opacity: 0, x: -10 }}
                           animate={{ opacity: 1, x: 0 }}
                           className={cn(
-                            "flex gap-3 p-2 rounded border",
-                            log.type === 'info' && "bg-zinc-800/20 border-zinc-800/50 text-zinc-400",
-                            log.type === 'success' && "bg-emerald-500/5 border-emerald-500/10 text-emerald-400",
-                            log.type === 'warning' && "bg-amber-500/5 border-amber-500/10 text-amber-400",
-                            log.type === 'error' && "bg-red-500/5 border-red-500/10 text-red-400"
+                            "flex items-center gap-3 p-2 rounded-lg border transition-all group",
+                            log.type === 'info' && "bg-zinc-800/10 border-zinc-800/30 text-zinc-500",
+                            log.type === 'success' && "bg-emerald-500/5 border-emerald-500/10 text-emerald-400/90",
+                            log.type === 'warning' && "bg-amber-500/5 border-amber-500/10 text-amber-400/90",
+                            log.type === 'error' && "bg-red-500/5 border-red-500/10 text-red-400/90"
                           )}
                         >
-                          <span className="opacity-30 shrink-0">
-                            {new Date(log.timestamp).toLocaleTimeString([], { hour12: false })}
+                          <span className="text-[10px] font-mono font-bold opacity-40 shrink-0 min-w-[55px]">
+                            {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
                           </span>
-                          <span className="flex-1 break-words">{log.message}</span>
-                          {log.type === 'success' && <CheckCircle2 className="w-3 h-3 shrink-0" />}
-                          {log.type === 'error' && <AlertCircle className="w-3 h-3 shrink-0" />}
+
+                          {log.pubkey && (
+                            <div className="shrink-0 flex items-center gap-2">
+                              <img 
+                                src={communityProfiles[log.pubkey]?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${log.pubkey}`} 
+                                alt="" 
+                                className="w-5 h-5 rounded-full bg-zinc-800 border border-zinc-700/50"
+                                crossOrigin="anonymous"
+                              />
+                              <span className="text-[10px] font-black tracking-tight whitespace-nowrap opacity-80 max-w-[80px] truncate">
+                                {communityProfiles[log.pubkey]?.name || `${nip19.npubEncode(log.pubkey).substring(0, 8)}`}
+                              </span>
+                            </div>
+                          )}
+
+                          <div className="flex-1 min-w-0 flex items-center gap-2">
+                            <span className="text-[11px] truncate">{log.message}</span>
+                          </div>
+
+                          <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {log.type === 'success' && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
+                            {log.type === 'error' && <AlertCircle className="w-3 h-3 text-red-500" />}
+                          </div>
                         </motion.div>
                       ))}
                     </AnimatePresence>
                     {logs.length === 0 && (
                       <div className="h-full flex flex-col items-center justify-center text-zinc-700 space-y-2 opacity-50">
                         <Activity className="w-8 h-8" />
-                        <p className="italic text-sm text-center">No activity yet. Start the bot to begin monitoring.</p>
+                        <p className="italic text-sm text-center">Timeline is empty. Start the bot to begin monitoring.</p>
                       </div>
                     )}
                   </div>
@@ -2915,15 +2978,15 @@ export default function App() {
                                       </span>
                                       <h4 className="text-sm font-bold text-white truncate">{persona.settings.profile.name}</h4>
                                     </div>
-                                    <div className="flex items-center gap-1.5 opacity-80">
-                                      <span className="text-[9px] text-zinc-500 font-medium">by</span>
+                                    <div className="flex items-center gap-1.5 opacity-90 group/author">
+                                      <span className="text-[10px] text-zinc-500 font-medium">by</span>
                                       <img 
                                         src={communityProfiles[persona.author]?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${persona.author}`} 
                                         alt="Creator" 
-                                        className="w-3 h-3 rounded-full bg-zinc-800 border border-zinc-700/50"
+                                        className="w-3.5 h-3.5 rounded-full bg-zinc-800 border border-zinc-700/50"
                                         crossOrigin="anonymous"
                                       />
-                                      <p className="text-[9px] text-zinc-400 font-bold truncate">
+                                      <p className="text-[11px] text-zinc-300 font-bold truncate group-hover/author:text-emerald-400 transition-colors underline underline-offset-2 decoration-zinc-700 group-hover/author:decoration-emerald-500/50">
                                         {communityProfiles[persona.author]?.name || `${persona.author.substring(0, 8)}...`}
                                       </p>
                                     </div>
