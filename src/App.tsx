@@ -61,6 +61,10 @@ declare global {
     nostr?: {
       getPublicKey: () => Promise<string>;
       signEvent: (event: any) => Promise<any>;
+      nip44?: {
+        encrypt: (peer: string, plaintext: string) => Promise<string>;
+        decrypt: (peer: string, ciphertext: string) => Promise<string>;
+      };
     };
   }
 }
@@ -82,10 +86,10 @@ interface ProfileInfo {
 }
 
 interface BotStats {
-  repliesSent: number;
-  reactionsSent: number;
-  repliesReceived: number;
-  reactionsReceived: number;
+  repliesSent: Record<string, number>;
+  reactionsSent: Record<string, number>;
+  repliesReceived: Record<string, number>;
+  reactionsReceived: Record<string, number>;
 }
 
 interface Identity {
@@ -94,6 +98,8 @@ interface Identity {
   settings: BotSettings;
   nsec: string;
   createdAt: number;
+  updatedAt: number;
+  deleted?: boolean;
   stats?: BotStats;
 }
 
@@ -446,6 +452,16 @@ const DEFAULT_SETTINGS: BotSettings = {
   ...MODEL_PRESETS[SUPPORTED_MODELS[0].id]['Balanced Chat'] as any
 };
 
+// --- Constants ---
+
+const STORAGE_KEY_ACTIVE_NSEC = 'echobot_active_nsec';
+const STORAGE_KEY_SAVED_IDENTITIES = 'echobot_saved_identities';
+const STORAGE_KEY_CURRENT_SESSION = 'echobot_current_session';
+const STORAGE_KEY_CURATOR_PUBKEY = 'echobot_curator_pubkey';
+const STORAGE_KEY_GLOBAL_LIGHTNING_SYNC = 'echobot_global_lightning_sync';
+const STORAGE_KEY_DEVICE_ID = 'echobot_device_id';
+const STORAGE_KEY_LAST_SYNC = 'echobot_last_sync';
+
 // --- Components ---
 
 export default function App() {
@@ -471,6 +487,18 @@ export default function App() {
     error?: string;
   } | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<number>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_LAST_SYNC);
+    return saved ? parseInt(saved) : 0;
+  });
+  const [deviceId] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_DEVICE_ID);
+    if (saved) return saved;
+    const newId = crypto.randomUUID();
+    localStorage.setItem(STORAGE_KEY_DEVICE_ID, newId);
+    return newId;
+  });
   const [isVerbose, setIsVerbose] = useState(false);
   const [lastNormalProfile, setLastNormalProfile] = useState<ProfileInfo | null>({
     name: 'Echo Bot',
@@ -487,7 +515,7 @@ export default function App() {
   const [managerTab, setManagerTab] = useState<'local' | 'community'>('local');
   const [settingsTab, setSettingsTab] = useState<'general' | 'ai'>('general');
   const [globalUseCuratorLightning, setGlobalUseCuratorLightning] = useState(() => {
-    return localStorage.getItem('echobot_global_lightning_sync') === 'true';
+    return localStorage.getItem(STORAGE_KEY_GLOBAL_LIGHTNING_SYNC) === 'true';
   });
   const [rightTab, setRightTab] = useState<'timeline' | 'persona'>('timeline');
   const [personaSubTab, setPersonaSubTab] = useState<'profile' | 'prompt' | 'tuning' | 'reactions'>('profile');
@@ -695,14 +723,7 @@ export default function App() {
     return '';
   }
 
-  const STORAGE_KEY_ACTIVE_NSEC = 'echobot_active_nsec';
-  const STORAGE_KEY_SAVED_IDENTITIES = 'echobot_saved_identities';
-  const STORAGE_KEY_CURRENT_SESSION = 'echobot_current_session';
-  const STORAGE_KEY_CURATOR_PUBKEY = 'echobot_curator_pubkey';
-  const STORAGE_KEY_GLOBAL_LIGHTNING_SYNC = 'echobot_global_lightning_sync';
-  
-  const poolRef = useRef<SimplePool | null>(null);
-  const subscriptionsRef = useRef<any[]>([]);
+  const poolRef = useRef<SimplePool | null>(null);  const subscriptionsRef = useRef<any[]>([]);
   const timeoutRefs = useRef<NodeJS.Timeout[]>([]);
   const taskQueueRef = useRef<BotTask[]>([]);
   const isProcessingQueueRef = useRef(false);
@@ -826,7 +847,38 @@ export default function App() {
     if (saved) {
       try {
         loadedIdentities = JSON.parse(saved);
-        setSavedIdentities(loadedIdentities);
+        
+        // --- Migration for Cloud Sync (v0.2.0) ---
+        let needsMigration = false;
+        const migrated = loadedIdentities.map(id => {
+          let updated = { ...id };
+          // Initialize updatedAt if missing
+          if (!updated.updatedAt) {
+            updated.updatedAt = updated.createdAt || Date.now();
+            needsMigration = true;
+          }
+          // Migrate legacy stats (flat numbers) to device maps
+          if (updated.stats && typeof Object.values(updated.stats)[0] === 'number') {
+            const legacy = updated.stats as any;
+            updated.stats = {
+              repliesSent: { [deviceId]: legacy.repliesSent || 0 },
+              reactionsSent: { [deviceId]: legacy.reactionsSent || 0 },
+              repliesReceived: { [deviceId]: legacy.repliesReceived || 0 },
+              reactionsReceived: { [deviceId]: legacy.reactionsReceived || 0 },
+            };
+            needsMigration = true;
+          }
+          return updated;
+        });
+
+        if (needsMigration) {
+          loadedIdentities = migrated;
+          setSavedIdentities(migrated);
+          localStorage.setItem(STORAGE_KEY_SAVED_IDENTITIES, JSON.stringify(migrated));
+          addLog('Bot identities migrated for Cloud Sync compatibility.', 'info');
+        } else {
+          setSavedIdentities(loadedIdentities);
+        }
       } catch (e) {
         console.error('Failed to parse saved identities:', e);
       }
@@ -888,7 +940,8 @@ export default function App() {
           return {
             ...id,
             name: settings.profile.name,
-            settings: settings
+            settings: settings,
+            updatedAt: Date.now()
           };
         }
         return id;
@@ -1083,6 +1136,102 @@ export default function App() {
     }
   };
 
+  const syncWithCloud = async () => {
+    if (!userPubkey || !window.nostr?.nip44) {
+      addLog('NIP-44 capable extension required for cloud sync.', 'error');
+      return;
+    }
+
+    setIsSyncing(true);
+    addLog('Starting cloud sync...', 'info');
+
+    try {
+      if (!poolRef.current) poolRef.current = new SimplePool();
+      
+      // 1. Fetch latest from cloud
+      const cloudEvent = await poolRef.current.get(SEARCH_RELAYS, {
+        kinds: [30078],
+        authors: [userPubkey],
+        '#d': ['echobot_identities']
+      });
+
+      let cloudIdentities: Identity[] = [];
+      if (cloudEvent) {
+        try {
+          const decrypted = await window.nostr.nip44.decrypt(userPubkey, cloudEvent.content);
+          cloudIdentities = JSON.parse(decrypted);
+        } catch (e) {
+          addLog('Failed to decrypt cloud data.', 'error');
+          setIsSyncing(false);
+          return;
+        }
+      }
+
+      // 2. Merge Logic
+      const mergedMap = new Map<string, Identity>();
+      
+      // Add all cloud identities first
+      cloudIdentities.forEach(id => mergedMap.set(id.id, id));
+
+      // Merge local identities
+      savedIdentities.forEach(local => {
+        const cloud = mergedMap.get(local.id);
+        if (!cloud || local.updatedAt > cloud.updatedAt) {
+          // Local is newer or doesn't exist in cloud
+          if (cloud) {
+            // Merge stats maps
+            const mergedStats: BotStats = {
+              repliesSent: { ...(cloud.stats?.repliesSent || {}), ...(local.stats?.repliesSent || {}) },
+              reactionsSent: { ...(cloud.stats?.reactionsSent || {}), ...(local.stats?.reactionsSent || {}) },
+              repliesReceived: { ...(cloud.stats?.repliesReceived || {}), ...(local.stats?.repliesReceived || {}) },
+              reactionsReceived: { ...(cloud.stats?.reactionsReceived || {}), ...(local.stats?.reactionsReceived || {}) },
+            };
+            mergedMap.set(local.id, { ...local, stats: mergedStats });
+          } else {
+            mergedMap.set(local.id, local);
+          }
+        } else {
+          // Cloud is newer, but we still merge stats maps to ensure no device data is lost
+          const mergedStats: BotStats = {
+            repliesSent: { ...(local.stats?.repliesSent || {}), ...(cloud.stats?.repliesSent || {}) },
+            reactionsSent: { ...(local.stats?.reactionsSent || {}), ...(cloud.stats?.reactionsSent || {}) },
+            repliesReceived: { ...(local.stats?.repliesReceived || {}), ...(cloud.stats?.repliesReceived || {}) },
+            reactionsReceived: { ...(local.stats?.reactionsReceived || {}), ...(cloud.stats?.reactionsReceived || {}) },
+          };
+          mergedMap.set(local.id, { ...cloud, stats: mergedStats });
+        }
+      });
+
+      const mergedList = Array.from(mergedMap.values());
+
+      // 3. Encrypt and Push
+      const encrypted = await window.nostr.nip44.encrypt(userPubkey, JSON.stringify(mergedList));
+      const event = {
+        kind: 30078,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [['d', 'echobot_identities']],
+        content: encrypted,
+        pubkey: userPubkey
+      };
+
+      const signed = await window.nostr.signEvent(event);
+      const pubs = poolRef.current.publish(PUBLISH_RELAYS, signed);
+      await Promise.allSettled(pubs);
+
+      // 4. Update Local State
+      setSavedIdentities(mergedList);
+      const now = Date.now();
+      setLastSyncTime(now);
+      localStorage.setItem(STORAGE_KEY_LAST_SYNC, now.toString());
+      
+      addLog('Cloud sync complete!', 'success');
+    } catch (e) {
+      addLog(`Sync failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const fetchCommunityPersonas = async () => {
     if (isDiscovering) return;
     setIsDiscovering(true);
@@ -1210,6 +1359,7 @@ export default function App() {
         targetName: ''
       },
       createdAt: Date.now(),
+      updatedAt: Date.now(),
       stats: INITIAL_STATS
     };
 
@@ -1237,7 +1387,9 @@ export default function App() {
       name: finalSettings.profile.name,
       nsec,
       settings: finalSettings,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      stats: INITIAL_STATS
     };
 
     setSavedIdentities(prev => [newIdentity, ...prev]);
@@ -1444,29 +1596,39 @@ export default function App() {
   };
 
   const INITIAL_STATS: BotStats = {
-    repliesSent: 0,
-    reactionsSent: 0,
-    repliesReceived: 0,
-    reactionsReceived: 0
+    repliesSent: {},
+    reactionsSent: {},
+    repliesReceived: {},
+    reactionsReceived: {}
   };
 
-  const updateIdentityStats = useCallback((id: string, update: Partial<BotStats>) => {
+  const sumStats = (statsMap?: Record<string, number>) => {
+    if (!statsMap) return 0;
+    return Object.values(statsMap).reduce((a, b) => a + b, 0);
+  };
+
+  const updateIdentityStats = useCallback((id: string, update: Partial<Record<keyof BotStats, number>>) => {
     setSavedIdentities(prev => prev.map(identity => {
       if (identity.id === id) {
         const stats = identity.stats || { ...INITIAL_STATS };
+        const newStats = { ...stats };
+        
+        Object.entries(update).forEach(([key, value]) => {
+          const k = key as keyof BotStats;
+          const currentMap = { ...(newStats[k] || {}) };
+          currentMap[deviceId] = (currentMap[deviceId] || 0) + (value || 0);
+          newStats[k] = currentMap;
+        });
+
         return {
           ...identity,
-          stats: {
-            repliesSent: stats.repliesSent + (update.repliesSent || 0),
-            reactionsSent: stats.reactionsSent + (update.reactionsSent || 0),
-            repliesReceived: stats.repliesReceived + (update.repliesReceived || 0),
-            reactionsReceived: stats.reactionsReceived + (update.reactionsReceived || 0),
-          }
+          updatedAt: Date.now(),
+          stats: newStats
         };
       }
       return identity;
     }));
-  }, []);
+  }, [deviceId]);
 
   const saveIdentity = async (name: string) => {
     if (!currentIdentity) return;
@@ -1478,6 +1640,7 @@ export default function App() {
       settings: settings,
       nsec,
       createdAt: Date.now(),
+      updatedAt: Date.now(),
       stats: INITIAL_STATS
     };
 
@@ -1509,7 +1672,12 @@ export default function App() {
     }
   };
   const deleteIdentity = (id: string) => {
-    setSavedIdentities(prev => prev.filter(i => i.id !== id));
+    setSavedIdentities(prev => prev.map(identity => {
+      if (identity.id === id) {
+        return { ...identity, deleted: true, updatedAt: Date.now() };
+      }
+      return identity;
+    }));
     if (activeIdentityId === id) setActiveIdentityId(null);
     addLog('Identity removed from list.', 'warning');
   };
@@ -1550,6 +1718,7 @@ export default function App() {
       nsec,
       settings: newSettings,
       createdAt: Date.now(),
+      updatedAt: Date.now(),
       stats: INITIAL_STATS
     };
 
@@ -2835,17 +3004,36 @@ export default function App() {
                           <Plus className="w-3 h-3" />
                           New Bot
                         </button>
+                        {lastSyncTime > 0 && (
+                          <div className="hidden md:flex flex-col items-end opacity-40 px-2 border-l border-zinc-800">
+                            <span className="text-[8px] font-bold uppercase tracking-tighter">Last Synced</span>
+                            <span className="text-[9px] font-medium">{new Date(lastSyncTime).toLocaleString()}</span>
+                          </div>
+                        )}
+                        <button
+                          onClick={syncWithCloud}
+                          disabled={isSyncing || !userPubkey}
+                          className={cn(
+                            "px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2 border",
+                            isSyncing 
+                              ? "bg-zinc-800 text-zinc-500 border-zinc-700 cursor-not-allowed"
+                              : "bg-purple-500/10 text-purple-400 border-purple-500/20 hover:bg-purple-500 hover:text-black hover:border-purple-500"
+                          )}
+                        >
+                          <RefreshCw className={cn("w-3 h-3", isSyncing && "animate-spin")} />
+                          {isSyncing ? "Syncing..." : "Sync to Cloud"}
+                        </button>
                       </div>
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-                      {savedIdentities.length === 0 ? (
+                      {savedIdentities.filter(i => !i.deleted).length === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-30">
                           <Users className="w-12 h-12" />
                           <p className="text-sm font-medium italic">No saved bots yet.</p>
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                          {savedIdentities.map((identity) => (
+                          {savedIdentities.filter(i => !i.deleted).map((identity) => (
                             <div 
                               key={identity.id}
                               className={cn(
@@ -2894,11 +3082,11 @@ export default function App() {
                                   <div className="flex items-center gap-3">
                                     <div className="flex items-center gap-1" title="Replies Sent">
                                       <MessageSquare className="w-2.5 h-2.5 text-emerald-500" />
-                                      <span className="text-xs font-bold text-zinc-300">{identity.stats?.repliesSent || 0}</span>
+                                      <span className="text-xs font-bold text-zinc-300">{sumStats(identity.stats?.repliesSent)}</span>
                                     </div>
                                     <div className="flex items-center gap-1" title="Reactions Sent">
                                       <Heart className="w-2.5 h-2.5 text-pink-500" />
-                                      <span className="text-xs font-bold text-zinc-300">{identity.stats?.reactionsSent || 0}</span>
+                                      <span className="text-xs font-bold text-zinc-300">{sumStats(identity.stats?.reactionsSent)}</span>
                                     </div>
                                   </div>
                                 </div>
@@ -2907,11 +3095,11 @@ export default function App() {
                                   <div className="flex items-center gap-3">
                                     <div className="flex items-center gap-1" title="Replies Received">
                                       <MessageSquare className="w-2.5 h-2.5 text-emerald-500 fill-current opacity-20" />
-                                      <span className="text-xs font-bold text-zinc-300">{identity.stats?.repliesReceived || 0}</span>
+                                      <span className="text-xs font-bold text-zinc-300">{sumStats(identity.stats?.repliesReceived)}</span>
                                     </div>
                                     <div className="flex items-center gap-1" title="Reactions Received">
                                       <Heart className="w-2.5 h-2.5 text-pink-500 fill-current opacity-20" />
-                                      <span className="text-xs font-bold text-zinc-300">{identity.stats?.reactionsReceived || 0}</span>
+                                      <span className="text-xs font-bold text-zinc-300">{sumStats(identity.stats?.reactionsReceived)}</span>
                                     </div>
                                   </div>
                                 </div>
