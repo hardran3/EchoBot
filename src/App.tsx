@@ -455,7 +455,6 @@ export default function App() {
   });
   const [settings, setSettings] = useState<BotSettings>(DEFAULT_SETTINGS);
 
-  const [reactionEmojis, setReactionEmojis] = useState(DEFAULT_REACTION_EMOJIS);
   const [currentIdentity, setCurrentIdentity] = useState<{ sk: Uint8Array; pk: string } | null>(null);
   const [activeRelays, setActiveRelays] = useState<string[]>([]);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
@@ -466,7 +465,7 @@ export default function App() {
     return localStorage.getItem('echobot_global_lightning_sync') === 'true';
   });
   const [rightTab, setRightTab] = useState<'log' | 'persona'>('log');
-  const [personaSubTab, setPersonaSubTab] = useState<'profile' | 'prompt' | 'tuning'>('profile');
+  const [personaSubTab, setPersonaSubTab] = useState<'profile' | 'prompt' | 'tuning' | 'reactions'>('profile');
   const [showIdentityManager, setShowIdentityManager] = useState(false);
   const [showAddIdentityDialog, setShowAddIdentityDialog] = useState(false);
   const [showEmojiPickerDialog, setShowEmojiPickerDialog] = useState(false);
@@ -695,92 +694,81 @@ export default function App() {
   const isInitialMountSettings = useRef(true);
   const isInitialMountIdentities = useRef(true);
 
-  // AI Worker Lifecycle
+  // 1. Authority: Single source of truth for killing/resetting the engine
+  useEffect(() => {
+    if (!isInitialMountSettings.current || !settings.useAI) {
+      setAiStatus('idle');
+      setAiProgress(0);
+      setAiErrorMessage(null);
+      if (aiWorkerRef.current) {
+        aiWorkerRef.current.terminate();
+        aiWorkerRef.current = null;
+      }
+    }
+    // Set mount flag to false after first check
+    if (isInitialMountSettings.current) isInitialMountSettings.current = false;
+  }, [settings.modelId, settings.useAI]);
+
+  // 2. Trigger: Automatically move to loading state when idle and enabled
   useEffect(() => {
     if (settings.useAI && (aiStatus === 'idle' || aiStatus === 'error')) {
       setAiStatus('loading');
-      
-      // Terminate existing worker if any
-      if (aiWorkerRef.current) {
-        aiWorkerRef.current.terminate();
-      }
-      
-      const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-      
-      worker.onmessage = (e) => {
-        const { type, data } = e.data;
-        if (type === 'progress') {
-          // Track the current file being processed
-          if (data.file) {
-            const fileName = data.file.split('/').pop();
-            setCurrentLoadingFile(fileName);
-          }
+    }
+  }, [settings.useAI, aiStatus]);
 
-          // Only show progress for the main ONNX model file or overall download progress
-          const isModelFile = data.file && (data.file.includes('.onnx') || data.file.includes('onnx_'));
-          const isMainDownload = data.status === 'progress' && data.progress !== undefined;
-          
-          if (isMainDownload && isModelFile) {
-            setAiProgress(data.progress);
-          } else if (data.status === 'initiate') {
-            addLog(`Starting download: ${data.file.split('/').pop()}`, 'info');
-          }
-        } else if (type === 'ready') {
-          setAiStatus('ready');
-          setAiProgress(100);
-          setCurrentLoadingFile('');
-          addLog(`AI Brain (${settings.modelId.split('/').pop()}) is ready!`, 'success');
-        } else if (type === 'result') {
-          if (aiResolveRef.current) {
-            aiResolveRef.current(data);
-            aiResolveRef.current = null;
-          }
-        } else if (type === 'error') {
-          setAiStatus('error');
-          setAiErrorMessage(data);
-          addLog(`AI Brain Error: ${data}`, 'error');
-        } else if (type === 'status') {
-          if (data.includes('Initializing')) {
-            setCurrentLoadingFile('Engine...');
-          }
-          addLog(data, 'info');
-        }
-      };
+  // 3. Execution: The actual worker lifecycle
+  useEffect(() => {
+    if (aiStatus !== 'loading') return;
 
-      worker.postMessage({ type: 'init', data: { model_id: settings.modelId } });
-      aiWorkerRef.current = worker;
+    // Terminate existing worker just in case Tier 1 hasn't finished
+    if (aiWorkerRef.current) {
+      aiWorkerRef.current.terminate();
     }
 
-    return () => {
-      if (!settings.useAI && aiWorkerRef.current) {
-        aiWorkerRef.current.terminate();
-        aiWorkerRef.current = null;
-        setAiStatus('idle');
-        setAiProgress(0);
+    const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+
+    worker.onmessage = (e) => {
+      const { type, data } = e.data;
+      if (type === 'progress') {
+        if (data.file) {
+          const fileName = data.file.split('/').pop();
+          setCurrentLoadingFile(fileName);
+        }
+        const isModelFile = data.file && (data.file.includes('.onnx') || data.file.includes('onnx_'));
+        const isMainDownload = data.status === 'progress' && data.progress !== undefined;
+        if (isMainDownload && isModelFile) {
+          setAiProgress(data.progress);
+        } else if (data.status === 'initiate') {
+          addLog(`Starting download: ${data.file.split('/').pop()}`, 'info');
+        }
+      } else if (type === 'ready') {
+        setAiStatus('ready');
+        setAiProgress(100);
+        setCurrentLoadingFile('');
+        addLog(`AI Brain (${settings.modelId.split('/').pop()}) is ready!`, 'success');
+      } else if (type === 'result') {
+        if (aiResolveRef.current) {
+          aiResolveRef.current(data);
+          aiResolveRef.current = null;
+        }
+      } else if (type === 'error') {
+        setAiStatus('error');
+        setAiErrorMessage(data);
+        addLog(`AI Brain Error: ${data}`, 'error');
+      } else if (type === 'status') {
+        if (data.includes('Initializing')) {
+          setCurrentLoadingFile('Engine...');
+        }
+        addLog(data, 'info');
       }
     };
-  }, [settings.useAI, settings.modelId]);
 
-  // Handle model change and reset presets
-  useEffect(() => {
-    if (!isInitialMountSettings.current) {
-       const modelPresets = MODEL_PRESETS[settings.modelId];
-       if (modelPresets) {
-         setSettings(s => ({
-           ...s,
-           ...modelPresets['Balanced Chat']
-         }));
-       }
-       
-       // If AI is already loaded, we need to reload it with the new model
-       if (settings.useAI) {
-         setAiStatus('idle');
-         setAiProgress(0);
-       }
-    }
-  }, [settings.modelId]);
+    worker.postMessage({ type: 'init', data: { model_id: settings.modelId } });
+    aiWorkerRef.current = worker;
 
-  // Autoscroll Playground
+    // Note: We DO NOT terminate in cleanup here. 
+    // Tier 1 handles termination based on model change.
+  }, [aiStatus]); // Depend on status to trigger the process  // Autoscroll Playground
   useEffect(() => {
     if (playgroundScrollRef.current) {
       playgroundScrollRef.current.scrollTo({
@@ -830,31 +818,26 @@ export default function App() {
         const sk = data as any;
         const pk = getPublicKey(sk);
         setCurrentIdentity({ sk, pk });
-        
-        if (parsed.settings.reactionEmojis) {
-          setReactionEmojis(parsed.settings.reactionEmojis);
-        }
-        
+
         setActiveIdentityId(parsed.id || null);
         addLog(`Restored session: ${parsed.settings.profile.name}`, 'info');
         return; // Session restored, we are done
-      } catch (e) {
+        } catch (e) {
         console.error('Failed to restore session:', e);
-      }
-    }
+        }
+        }
 
-    // 3. Fallback: Load first saved identity or create default
-    if (loadedIdentities.length > 0) {
-      const first = loadedIdentities[0];
-      setSettings(first.settings);
-      const { data } = nip19.decode(first.nsec);
-      const sk = data as any;
-      const pk = getPublicKey(sk);
-      setCurrentIdentity({ sk, pk });
-      setActiveIdentityId(first.id);
-      addLog(`Loaded identity: ${first.settings.profile.name}`, 'info');
-    } else {
-      setShowOnboarding(true);
+        // 3. Fallback: Load first saved identity or create default
+        if (loadedIdentities.length > 0) {
+        const first = loadedIdentities[0];
+        setSettings(first.settings);
+        const { data } = nip19.decode(first.nsec);
+        const sk = data as any;
+        const pk = getPublicKey(sk);
+        setCurrentIdentity({ sk, pk });
+        setActiveIdentityId(first.id);
+        addLog(`Loaded identity: ${first.settings.profile.name}`, 'info');
+        } else {      setShowOnboarding(true);
       addLog('Welcome to EchoBot! Let\'s set up your first autonomous AI.', 'info');
     }
   }, []);
@@ -866,9 +849,9 @@ export default function App() {
     const sessionData = {
       id: activeIdentityId,
       nsec: nip19.nsecEncode(currentIdentity.sk),
-      settings: { ...settings, reactionEmojis }
+      settings: settings
     };
-    
+
     localStorage.setItem(STORAGE_KEY_CURRENT_SESSION, JSON.stringify(sessionData));
     localStorage.setItem(STORAGE_KEY_ACTIVE_NSEC, sessionData.nsec);
 
@@ -879,14 +862,13 @@ export default function App() {
           return {
             ...id,
             name: settings.profile.name,
-            settings: { ...settings, reactionEmojis }
+            settings: settings
           };
         }
         return id;
       }));
     }
-  }, [settings, reactionEmojis, currentIdentity, activeIdentityId]);
-
+    }, [settings, currentIdentity, activeIdentityId]);
   // Persist the saved identities list whenever it changes
   useEffect(() => {
     if (isInitialMountIdentities.current) {
@@ -1069,12 +1051,16 @@ export default function App() {
     const pk = getPublicKey(sk);
     const nsec = nip19.nsecEncode(sk);
 
+    // Preserve the current model selection
+    const currentModelId = settings.modelId;
+
     const newIdentity: Identity = {
       id: Math.random().toString(36).substring(7),
       name: persona.settings.profile.name,
       nsec,
       settings: {
         ...persona.settings,
+        modelId: currentModelId, // Keep current engine
         targetNpub: '', // Reset target on import
         targetName: ''
       },
@@ -1154,11 +1140,11 @@ export default function App() {
     const newIdentity: Identity = {
       id: Math.random().toString(36).substring(7),
       name,
-      settings: { ...settings, reactionEmojis },
+      settings: settings,
       nsec,
       createdAt: Date.now()
     };
-    
+
     setSavedIdentities(prev => [newIdentity, ...prev]);
     setActiveIdentityId(newIdentity.id);
     addLog(`Identity "${name}" saved to list.`, 'success');
@@ -1169,14 +1155,16 @@ export default function App() {
       const { data } = nip19.decode(identity.nsec);
       const sk = data as any;
       const pk = getPublicKey(sk);
-      
+
+      // Preserve the currently selected model
+      const currentModelId = settings.modelId;
+
       setCurrentIdentity({ sk, pk });
-      setSettings(identity.settings);
-      
-      if (identity.settings.reactionEmojis) {
-        setReactionEmojis(identity.settings.reactionEmojis);
-      }
-      
+      setSettings({
+        ...identity.settings,
+        modelId: currentModelId // Stick to current engine
+      });
+
       setActiveIdentityId(identity.id);
       addLog(`Loaded identity: ${identity.settings.profile.name}`, 'success');
       setShowIdentityManager(false);
@@ -1184,7 +1172,6 @@ export default function App() {
       addLog('Failed to load identity.', 'error');
     }
   };
-
   const deleteIdentity = (id: string) => {
     setSavedIdentities(prev => prev.filter(i => i.id !== id));
     if (activeIdentityId === id) setActiveIdentityId(null);
@@ -1206,15 +1193,18 @@ export default function App() {
 
     const modelPrompts = MODEL_DEFAULT_PROMPTS[settings.modelId] || MODEL_DEFAULT_PROMPTS['onnx-community/gemma-3-270m-it-ONNX'];
     const aiSystemPrompt = isRandomWaifu ? modelPrompts.waifu : modelPrompts.neutral;
+    
+    // Preserve current model engine
+    const currentModelId = settings.modelId;
 
     const newSettings: BotSettings = {
       ...DEFAULT_SETTINGS,
       profile,
       useAI: settings.useAI,
-      modelId: settings.modelId,
+      modelId: currentModelId,
       aiSystemPrompt,
       // Apply balanced chat defaults for the current model
-      ...MODEL_PRESETS[settings.modelId]['Balanced Chat'] as any
+      ...MODEL_PRESETS[currentModelId]['Balanced Chat'] as any
     };
 
     // Save as a new identity immediately
@@ -1231,7 +1221,6 @@ export default function App() {
     // Load it
     setCurrentIdentity({ sk, pk });
     setSettings(newSettings);
-    setReactionEmojis(newSettings.reactionEmojis);
     setActiveIdentityId(newIdentity.id);
     
     setShowAddIdentityDialog(false);
@@ -1500,9 +1489,9 @@ export default function App() {
 
       // 1. Build the reaction pool
       const allEmojis: string[] = ['+'];
-      if (reactionEmojis) {
+      if (settings.reactionEmojis) {
         const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-        const customEmojis = [...segmenter.segment(reactionEmojis.trim())]
+        const customEmojis = [...segmenter.segment(settings.reactionEmojis.trim())]
           .map(s => s.segment)
           .filter(c => c.trim() !== '');
         allEmojis.push(...customEmojis);
@@ -1743,11 +1732,11 @@ export default function App() {
                 setManagerTab('local');
                 setShowManager(true);
               }}
-              className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-full transition-all text-zinc-300 hover:text-white border border-zinc-700 shadow-sm"
+              className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800/50 text-zinc-400 rounded-full hover:bg-zinc-700/50 hover:text-white transition-colors text-xs font-medium border border-zinc-700/50"
               title="Manage Identities"
             >
-              <Users className="w-4 h-4" />
-              <span className="text-xs font-bold uppercase tracking-widest">Manage Bots</span>
+              <Users className="w-3.5 h-3.5" />
+              Manage Bots
             </button>
             <button 
               onClick={() => setShowSettingsDialog(true)}
@@ -1756,42 +1745,9 @@ export default function App() {
             >
               <SettingsIcon className="w-5 h-5" />
             </button>
-            
-            {isRunning ? (
-              <button
-                onClick={stopBot}
-                className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-full hover:bg-red-500/20 transition-all font-medium text-base"
-              >
-                <Square className="w-4 h-4 fill-current" />
-                Stop Bot
-              </button>
-            ) : (
-              <button
-                onClick={startBot}
-                disabled={settings.useAI && aiStatus !== 'ready'}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-full transition-all font-semibold text-base shadow-lg",
-                  settings.useAI && aiStatus !== 'ready' 
-                    ? "bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700 shadow-none" 
-                    : "bg-emerald-500 text-black hover:bg-emerald-400 shadow-emerald-500/20"
-                )}
-              >
-                {settings.useAI && aiStatus !== 'ready' ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Loading AI...</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4 fill-current" />
-                    <span>Start Bot</span>
-                  </>
-                )}
-              </button>
-            )}          </div>
-        </div>
-      </header>
-
+            </div>
+            </div>
+            </header>
       <main className="max-w-5xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left Column: Controls */}
         <div className="lg:col-span-5 space-y-6">
@@ -1988,6 +1944,39 @@ export default function App() {
             <p className="text-xs text-zinc-500 italic">
               The bot will monitor this user's outbox relays for new notes.
             </p>
+
+            {isRunning ? (
+              <button 
+                onClick={stopBot}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-500/10 text-red-500 border border-red-500/20 rounded-xl hover:bg-red-500/20 transition-all font-semibold"
+              >
+                <Square className="w-4 h-4 fill-current" />
+                Stop Bot
+              </button>
+            ) : (
+              <button 
+                onClick={startBot}
+                disabled={settings.useAI && aiStatus !== 'ready'}
+                className={cn(
+                  "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all font-bold shadow-lg",
+                  settings.useAI && aiStatus !== 'ready'
+                    ? "bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700 shadow-none"
+                    : "bg-emerald-500 text-black hover:bg-emerald-400 shadow-emerald-500/20"
+                )}
+              >
+                {settings.useAI && aiStatus !== 'ready' ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Loading Brain ({Math.round(aiProgress)}%)...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>Start Echoing</span>
+                  </>
+                )}
+              </button>
+            )}
           </section>
         </div>
 
@@ -2088,9 +2077,9 @@ export default function App() {
                     {[
                       { id: 'profile', label: 'Profile', icon: User },
                       { id: 'prompt', label: 'System Prompt', icon: MessageSquare },
-                      { id: 'tuning', label: 'Tuning', icon: SettingsIcon }
-                    ].map(tab => (
-                      <button
+                      { id: 'tuning', label: 'Tuning', icon: SettingsIcon },
+                      { id: 'reactions', label: 'Reactions', icon: Heart }
+                    ].map(tab => (                      <button
                         key={tab.id}
                         onClick={() => setPersonaSubTab(tab.id as any)}
                         className={cn(
@@ -2289,6 +2278,66 @@ export default function App() {
                                 />
                               </div>
                             ))}
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {personaSubTab === 'reactions' && (
+                        <motion.div
+                          key="reactions"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          className="space-y-6"
+                        >
+                          <div className="space-y-4">
+                            <label className="flex items-center justify-between p-4 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
+                              <div className="space-y-1">
+                                <div className="text-base font-bold text-white uppercase tracking-wider">Enable Reactions</div>
+                                <div className="text-xs text-zinc-500">The bot will send "+" and your custom emojis to the target's notes.</div>
+                              </div>
+                              <div className={cn(
+                                "w-10 h-5 rounded-full transition-all relative",
+                                settings.reactToNotes ? "bg-emerald-500" : "bg-zinc-800"
+                              )}>
+                                <input 
+                                  type="checkbox" 
+                                  checked={settings.reactToNotes}
+                                  onChange={(e) => setSettings(s => ({ ...s, reactToNotes: e.target.checked }))}
+                                  className="sr-only"
+                                />
+                                <div className={cn(
+                                  "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
+                                  settings.reactToNotes ? "left-6" : "left-1"
+                                )} />
+                              </div>
+                            </label>
+
+                            {settings.reactToNotes && (
+                              <div className="space-y-4 p-1">
+                                <div className="space-y-2">
+                                  <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Custom Emojis Pool</label>
+                                  <div className="flex gap-2">
+                                    <input 
+                                      type="text"
+                                      value={settings.reactionEmojis}
+                                      onChange={(e) => setSettings(s => ({ ...s, reactionEmojis: e.target.value }))}
+                                      className="flex-1 bg-black border border-zinc-800 rounded-xl px-4 py-3 text-lg focus:outline-none focus:border-emerald-500/50 transition-colors"
+                                      placeholder="❤️ 🔥 👍"
+                                    />
+                                    <button 
+                                      onClick={() => setShowEmojiPickerDialog(true)}
+                                      className="px-4 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl transition-colors border border-zinc-700 flex items-center justify-center"
+                                    >
+                                      <Sparkles className="w-5 h-5" />
+                                    </button>
+                                  </div>
+                                  <p className="text-[11px] text-zinc-500 italic">
+                                    The bot will pick one random emoji from this list (plus the standard "+") for each reaction.
+                                  </p>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </motion.div>
                       )}
@@ -2522,7 +2571,12 @@ export default function App() {
                                 />
                                 <div className="min-w-0 flex-1">
                                   <h4 className="text-xs font-bold text-white truncate">{persona.settings.profile.name}</h4>
-                                  <p className="text-[9px] text-zinc-500 font-mono truncate">by {persona.author.substring(0, 8)}...</p>
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    <p className="text-[9px] text-zinc-500 font-mono truncate flex-1">by {persona.author.substring(0, 8)}...</p>
+                                    <span className="text-[8px] font-bold uppercase tracking-tighter px-1 py-0.5 bg-purple-500/10 text-purple-400 rounded-md border border-purple-500/20 whitespace-nowrap">
+                                      {SUPPORTED_MODELS.find(m => m.id === persona.settings.modelId)?.name.split(' ').pop() || '270M'}
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
                               <p className="text-[11px] text-zinc-400 line-clamp-2 italic leading-snug min-h-[32px]">
@@ -2701,59 +2755,6 @@ export default function App() {
 
                     <div className="space-y-3">
                       <div className="flex items-center gap-2 text-zinc-400">
-                        <Heart className="w-4 h-4" />
-                        <h4 className="text-xs font-bold uppercase tracking-widest">Reactions</h4>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="flex items-center justify-between p-3 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
-                          <div className="space-y-0.5">
-                            <div className="text-sm font-medium text-white">Enable Reactions</div>
-                            <div className="text-[11px] text-zinc-500">Send "+" and custom emojis.</div>
-                          </div>
-                          <div className={cn(
-                            "w-8 h-4 rounded-full transition-all relative",
-                            settings.reactToNotes ? "bg-emerald-500" : "bg-zinc-800"
-                          )}>
-                            <input 
-                              type="checkbox"
-                              checked={settings.reactToNotes}
-                              onChange={(e) => setSettings(s => ({ ...s, reactToNotes: e.target.checked }))}
-                              className="sr-only"
-                            />
-                            <div className={cn(
-                              "absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all",
-                              settings.reactToNotes ? "left-4.5" : "left-0.5"
-                            )} />
-                          </div>
-                        </label>
-
-                        {settings.reactToNotes && (
-                          <div className="space-y-2 p-1">
-                            <div className="flex items-end gap-2">
-                              <div className="flex-1 space-y-1">
-                                <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Custom Emojis</label>
-                                <input 
-                                  type="text"
-                                  value={reactionEmojis}
-                                  onChange={(e) => setReactionEmojis(e.target.value)}
-                                  className="w-full bg-black border border-zinc-800 rounded-xl px-3 py-1.5 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
-                                  placeholder="❤️ 🔥 👍"
-                                />
-                              </div>
-                              <button 
-                                onClick={() => setShowEmojiPickerDialog(true)}
-                                className="p-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl transition-colors border border-zinc-700"
-                              >
-                                <Sparkles className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-zinc-400">
                         <Zap className="w-4 h-4 text-amber-400" />
                         <h4 className="text-xs font-bold uppercase tracking-widest">Payments</h4>
                       </div>
@@ -2857,7 +2858,7 @@ export default function App() {
                                         <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{Math.round(aiProgress)}%</span>
                                       </div>
                                     ) : (
-                                      <button
+                                      <button 
                                         onClick={() => {
                                           setSettings(s => ({ ...s, modelId: model.id, useAI: true }));
                                           if (aiStatus !== 'idle') setAiStatus('idle'); // Force reset to trigger load
@@ -2866,8 +2867,7 @@ export default function App() {
                                       >
                                         Load Model
                                       </button>
-                                    )}
-                                  </div>
+                                    )}                                  </div>
                                 </div>
 
                                 {isLoading && (
@@ -2937,21 +2937,20 @@ export default function App() {
                       <div className="grid grid-cols-8 gap-2">
                         {POPULAR_EMOJIS.map((emoji, idx) => {
                           const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-                          const currentEmojis = [...segmenter.segment(reactionEmojis)].map(s => s.segment).filter(c => c.trim() !== '');
+                          const currentEmojis = [...segmenter.segment(settings.reactionEmojis)].map(s => s.segment).filter(c => c.trim() !== '');
                           const isActive = currentEmojis.includes(emoji);
-                          
+
                           return (
-                            <button
+                            <button 
                               key={idx}
                               onClick={() => {
                                 if (isActive) {
-                                  setReactionEmojis(currentEmojis.filter(e => e !== emoji).join(' '));
+                                  setSettings(s => ({ ...s, reactionEmojis: currentEmojis.filter(e => e !== emoji).join(' ') }));
                                 } else {
-                                  setReactionEmojis([...currentEmojis, emoji].join(' '));
+                                  setSettings(s => ({ ...s, reactionEmojis: [...currentEmojis, emoji].join(' ') }));
                                 }
                               }}
-                              className={cn(
-                                "w-9 h-9 flex items-center justify-center rounded-lg text-xl transition-all",
+                              className={cn(                                "w-9 h-9 flex items-center justify-center rounded-lg text-xl transition-all",
                                 isActive 
                                   ? "bg-emerald-500/20 text-white border border-emerald-500/30 scale-110" 
                                   : "bg-black hover:bg-zinc-800 text-zinc-400 border border-zinc-800"
@@ -2972,21 +2971,20 @@ export default function App() {
                         {EMOJI_DATA.filter(e => e.k.includes(emojiSearchQuery.toLowerCase())).map((item, idx) => {
                           const emoji = item.c;
                           const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-                          const currentEmojis = [...segmenter.segment(reactionEmojis)].map(s => s.segment).filter(c => c.trim() !== '');
+                          const currentEmojis = [...segmenter.segment(settings.reactionEmojis)].map(s => s.segment).filter(c => c.trim() !== '');
                           const isActive = currentEmojis.includes(emoji);
-                          
+
                           return (
-                            <button
+                            <button 
                               key={idx}
                               onClick={() => {
                                 if (isActive) {
-                                  setReactionEmojis(currentEmojis.filter(e => e !== emoji).join(' '));
+                                  setSettings(s => ({ ...s, reactionEmojis: currentEmojis.filter(e => e !== emoji).join(' ') }));
                                 } else {
-                                  setReactionEmojis([...currentEmojis, emoji].join(' '));
+                                  setSettings(s => ({ ...s, reactionEmojis: [...currentEmojis, emoji].join(' ') }));
                                 }
                               }}
-                              className={cn(
-                                "w-9 h-9 flex items-center justify-center rounded-lg text-xl transition-all",
+                              className={cn(                                "w-9 h-9 flex items-center justify-center rounded-lg text-xl transition-all",
                                 isActive 
                                   ? "bg-emerald-500/20 text-white border border-emerald-500/30 scale-110" 
                                   : "bg-black hover:bg-zinc-800 text-zinc-400 border border-zinc-800"
