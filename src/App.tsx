@@ -94,7 +94,6 @@ interface BotSettings {
   profile: ProfileInfo;
   reactToNotes: boolean;
   reactionEmojis: string;
-  useCuratorLightning: boolean;
   useAI: boolean;
   aiSystemPrompt: string;
   modelId: string;
@@ -429,7 +428,6 @@ const DEFAULT_SETTINGS: BotSettings = {
   },
   reactToNotes: false,
   reactionEmojis: DEFAULT_REACTION_EMOJIS,
-  useCuratorLightning: false,
   useAI: false,
   aiSystemPrompt: MODEL_DEFAULT_PROMPTS[SUPPORTED_MODELS[0].id].neutral,
   modelId: SUPPORTED_MODELS[0].id,
@@ -464,6 +462,9 @@ export default function App() {
   const [showManager, setShowManager] = useState(false);
   const [managerTab, setManagerTab] = useState<'local' | 'community'>('local');
   const [settingsTab, setSettingsTab] = useState<'general' | 'ai'>('general');
+  const [globalUseCuratorLightning, setGlobalUseCuratorLightning] = useState(() => {
+    return localStorage.getItem('echobot_global_lightning_sync') === 'true';
+  });
   const [rightTab, setRightTab] = useState<'log' | 'persona'>('log');
   const [personaSubTab, setPersonaSubTab] = useState<'profile' | 'prompt' | 'tuning'>('profile');
   const [showIdentityManager, setShowIdentityManager] = useState(false);
@@ -674,6 +675,7 @@ export default function App() {
   const STORAGE_KEY_SAVED_IDENTITIES = 'echobot_saved_identities';
   const STORAGE_KEY_CURRENT_SESSION = 'echobot_current_session';
   const STORAGE_KEY_CURATOR_PUBKEY = 'echobot_curator_pubkey';
+  const STORAGE_KEY_GLOBAL_LIGHTNING_SYNC = 'echobot_global_lightning_sync';
   
   const poolRef = useRef<SimplePool | null>(null);
   const subscriptionsRef = useRef<any[]>([]);
@@ -894,9 +896,14 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY_SAVED_IDENTITIES, JSON.stringify(savedIdentities));
   }, [savedIdentities]);
 
-  // Curator Lightning Sync Logic
+  // Persist Global Preferences
   useEffect(() => {
-    if (settings.useCuratorLightning && curatorProfile?.lud16) {
+    localStorage.setItem(STORAGE_KEY_GLOBAL_LIGHTNING_SYNC, String(globalUseCuratorLightning));
+  }, [globalUseCuratorLightning]);
+
+  // Curator Lightning Sync Logic (Global Preference)
+  useEffect(() => {
+    if (globalUseCuratorLightning && curatorProfile?.lud16) {
       if (settings.profile.lud16 !== curatorProfile.lud16) {
         setSettings(s => ({
           ...s,
@@ -907,7 +914,7 @@ export default function App() {
         }));
       }
     }
-  }, [settings.useCuratorLightning, curatorProfile?.lud16, settings.profile.lud16]);
+  }, [globalUseCuratorLightning, curatorProfile?.lud16, settings.profile.lud16]);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -946,14 +953,16 @@ export default function App() {
           name: content.name || `NIP-07 User`,
           about: content.about || '',
           picture: content.picture || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${pubkey}`,
-          nip05: content.nip05 || ''
+          nip05: content.nip05 || '',
+          lud16: content.lud16 || content.lightning_address || ''
         });
       } catch (e) {
         setCuratorProfile({
           name: `NIP-07 User`,
           about: '',
           picture: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${pubkey}`,
-          nip05: ''
+          nip05: '',
+          lud16: ''
         });
       }
     } else {
@@ -961,7 +970,8 @@ export default function App() {
         name: `NIP-07 User`,
         about: '',
         picture: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${pubkey}`,
-        nip05: ''
+        nip05: '',
+        lud16: ''
       });
     }
   };
@@ -2755,25 +2765,27 @@ export default function App() {
                           <div className="space-y-0.5">
                             <div className="text-sm font-medium text-white">Use Curator Lightning Address</div>
                             <div className="text-[11px] text-zinc-500">
-                              {curatorProfile?.lud16 
+                              {!userPubkey ? "Sign in to sync your lightning address." :
+                               curatorProfile === null ? "Fetching curator profile..." :
+                               curatorProfile?.lud16 
                                 ? `Syncs ${curatorProfile.lud16} to this bot.` 
-                                : "No lightning address found in curator profile."}
+                                : "No lightning address found in your Nostr profile."}
                             </div>
                           </div>
                           <div className={cn(
                             "w-8 h-4 rounded-full transition-all relative",
-                            settings.useCuratorLightning ? "bg-emerald-500" : "bg-zinc-800"
+                            globalUseCuratorLightning ? "bg-emerald-500" : "bg-zinc-800"
                           )}>
                             <input 
                               type="checkbox"
-                              checked={settings.useCuratorLightning}
+                              checked={globalUseCuratorLightning}
                               disabled={!curatorProfile?.lud16}
-                              onChange={(e) => setSettings(s => ({ ...s, useCuratorLightning: e.target.checked }))}
+                              onChange={(e) => setGlobalUseCuratorLightning(e.target.checked)}
                               className="sr-only"
                             />
                             <div className={cn(
                               "absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all",
-                              settings.useCuratorLightning ? "left-4.5" : "left-0.5"
+                              globalUseCuratorLightning ? "left-4.5" : "left-0.5"
                             )} />
                           </div>
                         </label>
