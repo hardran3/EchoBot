@@ -973,21 +973,6 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY_GLOBAL_LIGHTNING_SYNC, String(globalUseCuratorLightning));
   }, [globalUseCuratorLightning]);
 
-  // Curator Lightning Sync Logic (Global Preference)
-  useEffect(() => {
-    if (globalUseCuratorLightning && curatorProfile?.lud16) {
-      if (settings.profile.lud16 !== curatorProfile.lud16) {
-        setSettings(s => ({
-          ...s,
-          profile: {
-            ...s.profile,
-            lud16: curatorProfile.lud16
-          }
-        }));
-      }
-    }
-  }, [globalUseCuratorLightning, curatorProfile?.lud16, settings.profile.lud16]);
-
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     addLog('Copied to clipboard.', 'info');
@@ -1118,7 +1103,12 @@ export default function App() {
       const shareableSettings = { 
         ...settings,
         targetNpub: '', // Clear target for public sharing
-        targetName: ''
+        targetName: '',
+        profile: {
+          ...settings.profile,
+          lud16: undefined,
+          lud06: undefined
+        }
       };
 
       const event = {
@@ -1846,11 +1836,17 @@ export default function App() {
   const publishProfile = async (sk: Uint8Array, profile: ProfileInfo, extraRelays: string[] = []) => {
     if (!poolRef.current) return;
 
+    // Apply curator lightning address override if enabled
+    const finalProfile = { ...profile };
+    if (globalUseCuratorLightning && curatorProfile?.lud16) {
+      finalProfile.lud16 = curatorProfile.lud16;
+    }
+
     const event = finalizeEvent({
       kind: 0,
       created_at: Math.floor(Date.now() / 1000),
       tags: [],
-      content: JSON.stringify(profile),
+      content: JSON.stringify(finalProfile),
     }, sk);
 
     const relays = [...new Set([...PUBLISH_RELAYS, ...extraRelays])];
@@ -2853,16 +2849,24 @@ export default function App() {
                                 />
                               </div>
                               <div className="space-y-1.5">
-                                <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Lightning (LUD-16)</label>
-                                <input 
+                                <div className="flex items-center justify-between">
+                                  <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Lightning (LUD-16)</label>
+                                  {globalUseCuratorLightning && curatorProfile?.lud16 && (
+                                    <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-tighter">Override Active</span>
+                                  )}
+                                </div>
+                                <input
                                   type="text"
-                                  value={settings.profile.lud16 || ''}
+                                  value={globalUseCuratorLightning && curatorProfile?.lud16 ? curatorProfile.lud16 : (settings.profile.lud16 || '')}
                                   onChange={(e) => setSettings(s => ({ ...s, profile: { ...s.profile, lud16: e.target.value } }))}
-                                  className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
+                                  disabled={globalUseCuratorLightning && !!curatorProfile?.lud16}
+                                  className={cn(
+                                    "w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-base focus:outline-none focus:border-emerald-500/50 transition-colors",
+                                    globalUseCuratorLightning && curatorProfile?.lud16 ? "text-emerald-500 border-emerald-500/20" : ""
+                                  )}
                                   placeholder="user@getalby.com"
                                 />
-                              </div>
-                            </div>
+                              </div>                            </div>
                           </div>
                         </motion.div>
                       )}
@@ -3644,11 +3648,10 @@ export default function App() {
                             <div className="text-[11px] text-zinc-500">
                               {!userPubkey ? "Sign in to sync your lightning address." :
                                curatorProfile === null ? "Fetching curator profile..." :
-                               curatorProfile?.lud16 
-                                ? `Syncs ${curatorProfile.lud16} to this bot.` 
+                               curatorProfile?.lud16
+                                ? `Overrides bot address with ${curatorProfile.lud16} when publishing.`
                                 : "No lightning address found in your Nostr profile."}
-                            </div>
-                          </div>
+                            </div>                          </div>
                           <div className={cn(
                             "w-8 h-4 rounded-full transition-all relative",
                             globalUseCuratorLightning ? "bg-emerald-500" : "bg-zinc-800"
