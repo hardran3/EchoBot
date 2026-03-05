@@ -40,7 +40,9 @@ import {
   Send,
   Terminal,
   Users,
-  Wand2
+  Wand2,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -445,6 +447,8 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(1);
   const [communityPersonas, setCommunityPersonas] = useState<{ id: string; author: string; settings: BotSettings; event: any }[]>([]);
+  const [communityProfiles, setCommunityProfiles] = useState<Record<string, ProfileInfo>>({});
+  const [personaVotes, setPersonaVotes] = useState<Record<string, { up: number, down: number, userVote?: string, userReactionId?: string }>>({});
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isVerbose, setIsVerbose] = useState(false);
   const [lastNormalProfile, setLastNormalProfile] = useState<ProfileInfo | null>({
@@ -1038,7 +1042,79 @@ export default function App() {
       }).filter(i => i !== null) as any[];
 
       setCommunityPersonas(parsed);
-      addLog(`Found ${parsed.length} community personas.`, 'info');
+      addLog(`Found ${parsed.length} community personas. Scanning reactions & profiles...`, 'info');
+
+      // Fetch profiles for these authors
+      const authorPubkeys = [...new Set(parsed.map(p => p.author))];
+      if (authorPubkeys.length > 0) {
+        const metadataEvents = await poolRef.current.querySync(SEARCH_RELAYS, {
+          kinds: [0],
+          authors: authorPubkeys
+        });
+
+        const profileMap: Record<string, ProfileInfo> = {};
+        metadataEvents.forEach(ev => {
+          try {
+            const content = JSON.parse(ev.content);
+            profileMap[ev.pubkey] = {
+              name: content.name || content.display_name || 'Anonymous',
+              about: content.about || '',
+              picture: content.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${ev.pubkey}`,
+              nip05: content.nip05 || ''
+            };
+          } catch (e) { /* skip bad content */ }
+        });
+        setCommunityProfiles(prev => ({ ...prev, ...profileMap }));
+      }
+
+      // Fetch reactions for these personas
+      const personaIds = parsed.map(p => p.id);
+      if (personaIds.length > 0) {
+        const reactionEvents = await poolRef.current.querySync(SEARCH_RELAYS, {
+          kinds: [7],
+          '#e': personaIds
+        });
+
+        const voteCounts: Record<string, { up: number, down: number, userVote?: string, userReactionId?: string }> = {};
+        
+        // Track unique votes per pubkey for each persona
+        const pubkeyVotes: Record<string, Record<string, { vote: string, id: string, created_at: number }>> = {};
+
+        reactionEvents.forEach(ev => {
+          const targetId = ev.tags.find(t => t[0] === 'e')?.[1];
+          if (!targetId || (ev.content !== '+' && ev.content !== '-')) return;
+
+          if (!pubkeyVotes[targetId]) pubkeyVotes[targetId] = {};
+          
+          // Only keep the latest vote from this pubkey
+          const existing = pubkeyVotes[targetId][ev.pubkey];
+          if (!existing || ev.created_at > existing.created_at) {
+            pubkeyVotes[targetId][ev.pubkey] = { vote: ev.content, id: ev.id, created_at: ev.created_at };
+          }
+        });
+
+        // Aggregate counts
+        Object.entries(pubkeyVotes).forEach(([targetId, votes]) => {
+          let up = 0;
+          let down = 0;
+          let userVote: string | undefined;
+          let userReactionId: string | undefined;
+
+          Object.entries(votes).forEach(([pk, data]) => {
+            if (data.vote === '+') up++;
+            else if (data.vote === '-') down++;
+            
+            if (pk === userPubkey) {
+              userVote = data.vote;
+              userReactionId = data.id;
+            }
+          });
+
+          voteCounts[targetId] = { up, down, userVote, userReactionId };
+        });
+
+        setPersonaVotes(voteCounts);
+      }
     } catch (e) {
       addLog('Failed to fetch community personas.', 'error');
     } finally {
@@ -1130,6 +1206,91 @@ export default function App() {
 
     } catch (e) {
       addLog(`Failed to send deletion request: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error');
+    }
+  };
+
+  const handlePersonaVote = async (personaEvent: any, voteType: '+' | '-') => {
+    if (!userPubkey || !window.nostr) {
+      addLog('Please sign in to vote.', 'error');
+      return;
+    }
+
+    const currentVoteData = personaVotes[personaEvent.id];
+    const isTogglingOff = currentVoteData?.userVote === voteType;
+
+    try {
+      if (isTogglingOff && currentVoteData.userReactionId) {
+        // Send Kind 5 Deletion for the existing reaction
+        const deletionEvent = {
+          kind: 5,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [['e', currentVoteData.userReactionId]],
+          content: `Removing ${voteType === '+' ? 'upvote' : 'downvote'}`,
+          pubkey: userPubkey
+        };
+        const signedDeletion = await window.nostr.signEvent(deletionEvent);
+        if (!poolRef.current) poolRef.current = new SimplePool();
+        poolRef.current.publish(PUBLISH_RELAYS, signedDeletion);
+
+        // Optimistic Update: Remove vote
+        setPersonaVotes(prev => {
+          const current = prev[personaEvent.id];
+          if (!current) return prev;
+          return {
+            ...prev,
+            [personaEvent.id]: {
+              ...current,
+              up: voteType === '+' ? Math.max(0, current.up - 1) : current.up,
+              down: voteType === '-' ? Math.max(0, current.down - 1) : current.down,
+              userVote: undefined,
+              userReactionId: undefined
+            }
+          };
+        });
+        addLog(`Removed your ${voteType === '+' ? 'upvote' : 'downvote'}.`, 'info');
+        return;
+      }
+
+      // If switching or new vote
+      const reactionEvent = {
+        kind: 7,
+        created_at: Math.floor(Date.now() / 1000),
+        content: voteType,
+        tags: [
+          ['e', personaEvent.id],
+          ['p', personaEvent.pubkey]
+        ],
+        pubkey: userPubkey
+      };
+
+      const signedEvent = await window.nostr.signEvent(reactionEvent);
+      
+      if (!poolRef.current) poolRef.current = new SimplePool();
+      const pubs = poolRef.current.publish(PUBLISH_RELAYS, signedEvent);
+
+      // Optimistic update
+      setPersonaVotes(prev => {
+        const current = prev[personaEvent.id] || { up: 0, down: 0 };
+        const updated = { ...current };
+        
+        if (voteType === '+') {
+          updated.up++;
+          if (updated.userVote === '-') updated.down = Math.max(0, updated.down - 1);
+        } else {
+          updated.down++;
+          if (updated.userVote === '+') updated.up = Math.max(0, updated.up - 1);
+        }
+        
+        updated.userVote = voteType;
+        updated.userReactionId = (signedEvent as any).id;
+        return { ...prev, [personaEvent.id]: updated };
+      });
+
+      addLog(`Sent ${voteType === '+' ? 'upvote' : 'downvote'} for persona.`, 'success');
+      await Promise.allSettled(pubs);
+
+    } catch (e) {
+      addLog(`Failed to update vote: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error');
     }
   };
 
@@ -2560,43 +2721,97 @@ export default function App() {
                           {communityPersonas.map((persona) => (
                             <div 
                               key={persona.id}
-                              className="group bg-black/40 border border-zinc-800 rounded-2xl p-3 hover:border-emerald-500/30 transition-all flex flex-col gap-2"
+                              className="group bg-black/40 border border-zinc-800 rounded-3xl hover:border-emerald-500/30 transition-all flex min-h-[160px] overflow-hidden"
                             >
-                              <div className="flex items-center gap-3">
-                                <img 
-                                  src={persona.settings.profile.picture} 
-                                  alt="" 
-                                  className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 object-cover"
-                                  crossOrigin="anonymous"
-                                />
-                                <div className="min-w-0 flex-1">
-                                  <h4 className="text-xs font-bold text-white truncate">{persona.settings.profile.name}</h4>
-                                  <div className="flex items-center gap-1.5 mt-0.5">
-                                    <p className="text-[9px] text-zinc-500 font-mono truncate flex-1">by {persona.author.substring(0, 8)}...</p>
-                                    <span className="text-[8px] font-bold uppercase tracking-tighter px-1 py-0.5 bg-purple-500/10 text-purple-400 rounded-md border border-purple-500/20 whitespace-nowrap">
-                                      {SUPPORTED_MODELS.find(m => m.id === persona.settings.modelId)?.name.split(' ').pop() || '270M'}
-                                    </span>
+                              {/* Left Content Area */}
+                              <div className="flex-1 flex flex-col p-4 min-w-0">
+                                <div className="flex items-center gap-3 mb-3">
+                                  <img 
+                                    src={persona.settings.profile.picture} 
+                                    alt="" 
+                                    className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 object-cover"
+                                    crossOrigin="anonymous"
+                                  />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                      <span className="text-[8px] font-bold uppercase tracking-tighter px-1 py-0.5 bg-purple-500/10 text-purple-400 rounded-md border border-purple-500/20 whitespace-nowrap">
+                                        {SUPPORTED_MODELS.find(m => m.id === persona.settings.modelId)?.name.split(' ').pop() || '270M'}
+                                      </span>
+                                      <h4 className="text-sm font-bold text-white truncate">{persona.settings.profile.name}</h4>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 opacity-80">
+                                      <span className="text-[9px] text-zinc-500 font-medium">by</span>
+                                      <img 
+                                        src={communityProfiles[persona.author]?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${persona.author}`} 
+                                        alt="Creator" 
+                                        className="w-3 h-3 rounded-full bg-zinc-800 border border-zinc-700/50"
+                                        crossOrigin="anonymous"
+                                      />
+                                      <p className="text-[9px] text-zinc-400 font-bold truncate">
+                                        {communityProfiles[persona.author]?.name || `${persona.author.substring(0, 8)}...`}
+                                      </p>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                              <p className="text-[11px] text-zinc-400 line-clamp-2 italic leading-snug min-h-[32px]">
-                                {persona.settings.profile.about}
-                              </p>
-                              <div className="pt-1 flex items-center gap-2">
-                                <button
-                                  onClick={() => importPersona(persona)}
-                                  className="flex-1 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-[10px] font-bold uppercase tracking-widest text-zinc-300 hover:bg-emerald-500 hover:text-black hover:border-emerald-500 transition-all"
-                                >
-                                  Import
-                                </button>
-                                {userPubkey === persona.author && (
+
+                                <p className="text-[11px] text-zinc-400 line-clamp-2 italic leading-snug flex-1">
+                                  {persona.settings.profile.about}
+                                </p>
+
+                                <div className="pt-3 flex items-center gap-2">
                                   <button
-                                    onClick={() => unpublishPersona(persona.event)}
-                                    className="p-1.5 bg-red-900/20 border border-red-500/20 rounded-lg text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                                    onClick={() => importPersona(persona)}
+                                    className="flex-1 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-[10px] font-bold uppercase tracking-widest text-zinc-300 hover:bg-emerald-500 hover:text-black hover:border-emerald-500 transition-all shadow-lg"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    Import Persona
                                   </button>
-                                )}
+                                  {userPubkey === persona.author && (
+                                    <button
+                                      onClick={() => unpublishPersona(persona.event)}
+                                      className="p-2 bg-red-900/20 border border-red-500/20 rounded-xl text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                                      title="Unpublish"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Right Vote Bar */}
+                              <div className="w-12 flex flex-col items-center justify-between py-4 bg-black/40 border-l border-zinc-800/50">
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handlePersonaVote(persona.event, '+'); }}
+                                  className={cn(
+                                    "p-2 rounded-xl transition-all",
+                                    personaVotes[persona.id]?.userVote === '+'
+                                      ? "text-emerald-500 bg-emerald-500/10"
+                                      : "text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800"
+                                  )}
+                                  title="Upvote"
+                                >
+                                  <ChevronUp className="w-5 h-5" />
+                                </button>
+                                
+                                <span className={cn(
+                                  "text-xs font-black font-mono tracking-tighter",
+                                  (personaVotes[persona.id]?.up || 0) - (personaVotes[persona.id]?.down || 0) > 0 ? "text-emerald-500" :
+                                  (personaVotes[persona.id]?.up || 0) - (personaVotes[persona.id]?.down || 0) < 0 ? "text-red-500" : "text-zinc-600"
+                                )}>
+                                  {(personaVotes[persona.id]?.up || 0) - (personaVotes[persona.id]?.down || 0)}
+                                </span>
+
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handlePersonaVote(persona.event, '-'); }}
+                                  className={cn(
+                                    "p-2 rounded-xl transition-all",
+                                    personaVotes[persona.id]?.userVote === '-'
+                                      ? "text-red-500 bg-red-500/10"
+                                      : "text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800"
+                                  )}
+                                  title="Downvote"
+                                >
+                                  <ChevronDown className="w-5 h-5" />
+                                </button>
                               </div>
                             </div>
                           ))}
