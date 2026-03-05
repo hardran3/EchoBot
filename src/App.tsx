@@ -98,6 +98,7 @@ interface Identity {
   name: string;
   settings: BotSettings;
   nsec: string;
+  npub?: string;
   createdAt: number;
   updatedAt: number;
   deleted?: boolean;
@@ -861,7 +862,7 @@ export default function App() {
       try {
         loadedIdentities = JSON.parse(saved);
         
-        // --- Migration for Cloud Sync (v0.2.0) ---
+        // --- Migration for Cloud Sync (v0.2.0) + npub optimization ---
         let needsMigration = false;
         const migrated = loadedIdentities.map(id => {
           let updated = { ...id };
@@ -881,6 +882,16 @@ export default function App() {
             };
             needsMigration = true;
           }
+          // Pre-calculate npub if missing
+          if (!updated.npub) {
+            try {
+              const { data } = nip19.decode(updated.nsec);
+              updated.npub = nip19.npubEncode(getPublicKey(data as any));
+              needsMigration = true;
+            } catch (e) {
+              console.error('Failed to migrate npub for identity:', updated.id, e);
+            }
+          }
           return updated;
         });
 
@@ -888,7 +899,7 @@ export default function App() {
           loadedIdentities = migrated;
           setSavedIdentities(migrated);
           localStorage.setItem(STORAGE_KEY_SAVED_IDENTITIES, JSON.stringify(migrated));
-          addLog('Bot identities migrated for Cloud Sync compatibility.', 'info');
+          addLog('Bot identities migrated for performance.', 'info');
         } else {
           setSavedIdentities(loadedIdentities);
         }
@@ -1349,6 +1360,7 @@ export default function App() {
     const sk = generateSecretKey();
     const pk = getPublicKey(sk);
     const nsec = nip19.nsecEncode(sk);
+    const npub = nip19.npubEncode(pk);
 
     // Preserve the current model selection
     const currentModelId = settings.modelId;
@@ -1357,6 +1369,7 @@ export default function App() {
       id: Math.random().toString(36).substring(7),
       name: persona.settings.profile.name,
       nsec,
+      npub,
       settings: {
         ...persona.settings,
         modelId: currentModelId, // Keep current engine
@@ -1378,6 +1391,7 @@ export default function App() {
     const sk = generateSecretKey();
     const pk = getPublicKey(sk);
     const nsec = nip19.nsecEncode(sk);
+    const npub = nip19.npubEncode(pk);
 
     const finalSettings = {
       ...tempSettings,
@@ -1391,6 +1405,7 @@ export default function App() {
       id: Math.random().toString(36).substring(7),
       name: finalSettings.profile.name,
       nsec,
+      npub,
       settings: finalSettings,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1607,10 +1622,10 @@ export default function App() {
     reactionsReceived: {}
   };
 
-  const sumStats = (statsMap?: Record<string, number>) => {
+  const sumStats = useCallback((statsMap?: Record<string, number>) => {
     if (!statsMap) return 0;
     return Object.values(statsMap).reduce((a, b) => a + b, 0);
-  };
+  }, []);
 
   const updateIdentityStats = useCallback((id: string, update: Partial<Record<keyof BotStats, number>>) => {
     setSavedIdentities(prev => prev.map(identity => {
@@ -1638,12 +1653,14 @@ export default function App() {
   const saveIdentity = async (name: string) => {
     if (!currentIdentity) return;
     const nsec = nip19.nsecEncode(currentIdentity.sk);
+    const npub = nip19.npubEncode(currentIdentity.pk);
 
     const newIdentity: Identity = {
       id: Math.random().toString(36).substring(7),
       name,
       settings: settings,
       nsec,
+      npub,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       stats: INITIAL_STATS
@@ -1691,6 +1708,7 @@ export default function App() {
     const sk = generateSecretKey();
     const pk = getPublicKey(sk);
     const nsec = nip19.nsecEncode(sk);
+    const npub = nip19.npubEncode(pk);
     
     const isRandomWaifu = type === 'waifu';
     const profile = isRandomWaifu ? generateWaifuProfile() : {
@@ -1721,6 +1739,7 @@ export default function App() {
       id: Math.random().toString(36).substring(7),
       name: profile.name,
       nsec,
+      npub,
       settings: newSettings,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -3276,7 +3295,11 @@ export default function App() {
                                 />
                                 <div className="min-w-0 flex-1">
                                   <h4 className="text-base font-bold text-white truncate">{identity.name}</h4>
-                                  <p className="text-[10px] text-zinc-500 font-mono truncate">{nip19.npubEncode(getPublicKey(nip19.decode(identity.nsec).data as any)).substring(0, 14)}...</p>
+                                  <p className="text-[10px] text-zinc-500 font-mono truncate">
+                                    {identity.npub 
+                                      ? identity.npub.substring(0, 14) 
+                                      : nip19.npubEncode(getPublicKey(nip19.decode(identity.nsec).data as any)).substring(0, 14)}...
+                                  </p>
                                 </div>
                                 
                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
