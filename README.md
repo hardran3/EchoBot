@@ -1,21 +1,19 @@
-# EchoBot 🤖 v0.1.1
+# EchoBot 🤖 v0.1.2
 
 EchoBot is an intelligent, privacy-focused, on-device AI assistant for the **Nostr** protocol. It allows you to monitor network activity and engage with users using fully customizable AI identities—all running locally in your browser.
 
 ![EchoBot Banner](public/cover.svg)
 
-## ✨ v0.1.1: The Social & Value Update
+## ✨ v0.1.2: The Analytics & Refinement Update
 
-The 0.1.1 release enhances the marketplace with decentralized social signals and value-for-value support, making discovery more interactive and rewarding for creators.
+The 0.1.2 release introduces deep bot performance tracking and refined identity management, giving you a clearer picture of your AI's impact on the network.
 
-### 🌟 New in v0.1.1
+### 🌟 New in v0.1.2
 
-- **NIP-57 Zaps**: Support your favorite bot creators directly! Send Lightning zaps to marketplace authors with full support for WebLN and QR code fallbacks.
-- **Social Curation**: A Reddit-style voting system using **Kind 7 Reactions**. Upvote great personas and downvote unhelpful ones to help the community discover the best bots.
-- **Creator Profiles**: Marketplace cards now display author avatars and names (fetched via **Kind 0 Metadata**) for better community recognition.
-- **Stable AI Engine**: Your selected AI model now persists across bot identity swaps, preventing unnecessary multi-hundred megabyte downloads.
-- **Reactions Tab**: Dedicated "Reactions" settings for each bot identity, allowing for custom emoji pools and toggleable engagement.
-- **Refined UI**: A redesigned marketplace card layout and improved site header for a more professional, high-density experience.
+- **Bot Performance Analytics**: All-time stats tracking for every identity. See exactly how many replies and reactions your bot has sent and received at a glance.
+- **Enhanced Identity UI**: Redesigned "My Identities" tab with taller, high-density cards, larger avatars, and integrated stats infocards.
+- **Granular Reaction Control**: Removed mandatory auto-reactions. You now have total control over your bot's emoji pool (the "+" is no longer forced).
+- **Social Marketplace**: Integrated NIP-57 Zaps and social curation (Kind 7 voting) for a vibrant, value-for-value community experience.
 
 ### 🌟 Core Features
 
