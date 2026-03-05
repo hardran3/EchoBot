@@ -47,6 +47,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { QRCodeSVG } from 'qrcode.react';
 
 // Utility for Tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -70,13 +71,13 @@ interface LogEntry {
   type: 'info' | 'success' | 'warning' | 'error';
   message: string;
 }
-
 interface ProfileInfo {
   name: string;
   about: string;
   picture: string;
   nip05: string;
   lud16?: string;
+  lud06?: string;
 }
 
 interface Identity {
@@ -449,6 +450,17 @@ export default function App() {
   const [communityPersonas, setCommunityPersonas] = useState<{ id: string; author: string; settings: BotSettings; event: any }[]>([]);
   const [communityProfiles, setCommunityProfiles] = useState<Record<string, ProfileInfo>>({});
   const [personaVotes, setPersonaVotes] = useState<Record<string, { up: number, down: number, userVote?: string, userReactionId?: string }>>({});
+  const [showZapDialog, setShowZapDialog] = useState(false);
+  const [showZapSuccess, setShowZapSuccess] = useState(false);
+  const [zapData, setZapData] = useState<{ 
+    personaId: string; 
+    author: string; 
+    amount: number; 
+    comment: string; 
+    invoice?: string; 
+    isPaying?: boolean;
+    error?: string;
+  } | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isVerbose, setIsVerbose] = useState(false);
   const [lastNormalProfile, setLastNormalProfile] = useState<ProfileInfo | null>({
@@ -1060,7 +1072,9 @@ export default function App() {
               name: content.name || content.display_name || 'Anonymous',
               about: content.about || '',
               picture: content.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${ev.pubkey}`,
-              nip05: content.nip05 || ''
+              nip05: content.nip05 || '',
+              lud16: content.lud16 || '',
+              lud06: content.lud06 || ''
             };
           } catch (e) { /* skip bad content */ }
         });
@@ -1291,6 +1305,85 @@ export default function App() {
 
     } catch (e) {
       addLog(`Failed to update vote: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error');
+    }
+  };
+
+  const getZapInvoice = async (personaId: string, authorPubkey: string, amountSats: number, comment: string) => {
+    try {
+      setZapData(prev => prev ? { ...prev, isPaying: true, error: undefined } : null);
+      
+      const profile = communityProfiles[authorPubkey];
+      if (!profile?.lud16 && !profile?.lud06) {
+        throw new Error('This author does not have a Lightning Address or LNURL set.');
+      }
+
+      // 1. Resolve LNURL
+      let callback = '';
+      if (profile.lud16) {
+        const [name, domain] = profile.lud16.split('@');
+        const res = await fetch(`https://${domain}/.well-known/lnurlp/${name}`);
+        const data = await res.json();
+        callback = data.callback;
+        if (!data.allowsNostr || !data.nostrPubkey) throw new Error('Recipient does not support Nostr Zaps.');
+      } else if (profile.lud06) {
+        // Simple LNURL decode if needed (skipping full bech32 decode for brevity as lud16 is more common)
+        throw new Error('LNURL lud06 not yet supported. Please use lud16.');
+      }
+
+      // 2. Create Zap Request (Kind 9734)
+      let zapRequest;
+      const zapRequestContent = {
+        kind: 9734,
+        created_at: Math.floor(Date.now() / 1000),
+        content: comment,
+        tags: [
+          ['relays', ...SEARCH_RELAYS],
+          ['amount', (amountSats * 1000).toString()],
+          ['p', authorPubkey],
+          ['e', personaId]
+        ],
+        pubkey: userPubkey || getPublicKey(generateSecretKey()) // Random if not logged in
+      };
+
+      if (userPubkey && window.nostr) {
+        zapRequest = await window.nostr.signEvent(zapRequestContent);
+      } else {
+        const tempSk = generateSecretKey();
+        zapRequest = finalizeEvent(zapRequestContent, tempSk);
+      }
+
+      // 3. Get Invoice
+      const amountMillisats = amountSats * 1000;
+      const invoiceUrl = `${callback}${callback.includes('?') ? '&' : '?'}amount=${amountMillisats}&nostr=${encodeURIComponent(JSON.stringify(zapRequest))}&comment=${encodeURIComponent(comment)}`;
+      
+      const invoiceRes = await fetch(invoiceUrl);
+      const invoiceData = await invoiceRes.json();
+      
+      if (invoiceData.pr) {
+        setZapData(prev => prev ? { ...prev, invoice: invoiceData.pr, isPaying: false } : null);
+        
+        // Try WebLN immediately
+        if ((window as any).webln) {
+          try {
+            await (window as any).webln.enable();
+            await (window as any).webln.sendPayment(invoiceData.pr);
+            setZapData(null);
+            setShowZapDialog(false);
+            setShowZapSuccess(true);
+            addLog(`Zap of ${amountSats} sats sent!`, 'success');
+            setTimeout(() => setShowZapSuccess(false), 3000);
+          } catch (e) {
+            // WebLN failed or cancelled, we stay in dialog for QR fallback
+            console.log('WebLN failed, falling back to QR:', e);
+          }
+        }
+      } else {
+        throw new Error(invoiceData.reason || 'Failed to get invoice from provider.');
+      }
+
+    } catch (e) {
+      setZapData(prev => prev ? { ...prev, isPaying: false, error: e instanceof Error ? e.message : 'Zap failed' } : null);
+      addLog(`Zap Error: ${e instanceof Error ? e.message : 'Zap failed'}`, 'error');
     }
   };
 
@@ -2202,9 +2295,10 @@ export default function App() {
                   </div>
                   <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-[11px] custom-scrollbar">
                     <AnimatePresence initial={false}>
-                      {logs.map((log) => (
-                        <motion.div 
-                          key={log.id}
+                      {logs
+                        .filter(log => isVerbose || log.type !== 'info')
+                        .map((log) => (
+                        <motion.div                          key={log.id}
                           initial={{ opacity: 0, x: -10 }}
                           animate={{ opacity: 1, x: 0 }}
                           className={cn(
@@ -2760,6 +2854,22 @@ export default function App() {
 
                                 <div className="pt-3 flex items-center gap-2">
                                   <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setZapData({ 
+                                        personaId: persona.id, 
+                                        author: persona.author, 
+                                        amount: 21, 
+                                        comment: `Zapping ${persona.settings.profile.name}` 
+                                      });
+                                      setShowZapDialog(true);
+                                    }}
+                                    className="p-2 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-500 hover:bg-amber-500 hover:text-black hover:border-amber-500 transition-all shadow-lg"
+                                    title="Send Zap"
+                                  >
+                                    <Zap className="w-4 h-4 fill-current" />
+                                  </button>
+                                  <button
                                     onClick={() => importPersona(persona)}
                                     className="flex-1 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-[10px] font-bold uppercase tracking-widest text-zinc-300 hover:bg-emerald-500 hover:text-black hover:border-emerald-500 transition-all shadow-lg"
                                   >
@@ -2834,7 +2944,7 @@ export default function App() {
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
-                  <span className="text-[10px] text-zinc-700 font-bold uppercase tracking-widest">v0.1.0</span>
+                  <span className="text-[10px] text-zinc-700 font-bold uppercase tracking-widest">v0.1.1</span>
                   <p className="text-[10px] text-zinc-500">Press ESC or click close to return</p>
                 </div>
               </div>
@@ -3228,6 +3338,175 @@ export default function App() {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Zap Dialog */}
+      <AnimatePresence>
+        {showZapDialog && zapData && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-6 bg-black/90 backdrop-blur-xl">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col"
+            >
+              <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-black/20">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-amber-500 fill-current" />
+                  <h3 className="text-xl font-bold text-white tracking-tight">Send Zap</h3>
+                </div>
+                <button onClick={() => setShowZapDialog(false)} className="text-zinc-500 hover:text-white transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6">
+                <div className="flex items-center gap-3 p-3 bg-black/40 border border-zinc-800 rounded-2xl">
+                  <img 
+                    src={communityProfiles[zapData.author]?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${zapData.author}`} 
+                    alt="" 
+                    className="w-8 h-8 rounded-full border border-zinc-700"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white truncate">{communityProfiles[zapData.author]?.name || 'Anonymous'}</p>
+                    <p className="text-[10px] text-amber-500 font-medium truncate uppercase tracking-tight">
+                      {communityProfiles[zapData.author]?.lud16 || 'Lightning Enabled'}
+                    </p>
+                  </div>
+                </div>
+
+                {!zapData.invoice ? (
+                  <>
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Select Amount</label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {[21, 100, 1000, 5000].map(amt => (
+                          <button
+                            key={amt}
+                            onClick={() => setZapData({ ...zapData, amount: amt })}
+                            className={cn(
+                              "py-2 rounded-xl text-xs font-bold transition-all border",
+                              zapData.amount === amt 
+                                ? "bg-amber-500 text-black border-amber-500 shadow-lg shadow-amber-500/20" 
+                                : "bg-black/40 text-zinc-400 border-zinc-800 hover:border-zinc-700"
+                            )}
+                          >
+                            {amt}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="relative">
+                        <input 
+                          type="number"
+                          value={zapData.amount}
+                          onChange={(e) => setZapData({ ...zapData, amount: parseInt(e.target.value) || 0 })}
+                          className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-lg font-bold text-white focus:outline-none focus:border-amber-500/50 transition-colors pr-16"
+                        />
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold text-xs">SATS</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Message (Optional)</label>
+                      <textarea 
+                        value={zapData.comment}
+                        onChange={(e) => setZapData({ ...zapData, comment: e.target.value })}
+                        placeholder="Say something nice..."
+                        className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors resize-none h-20"
+                      />
+                    </div>
+
+                    <button
+                      onClick={() => getZapInvoice(zapData.personaId, zapData.author, zapData.amount, zapData.comment)}
+                      disabled={zapData.isPaying || zapData.amount <= 0}
+                      className="w-full py-4 bg-amber-500 text-black rounded-2xl font-bold text-lg hover:bg-amber-400 transition-all shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {zapData.isPaying ? (
+                        <RefreshCw className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <>
+                          <Zap className="w-5 h-5 fill-current" />
+                          Generate Invoice
+                        </>
+                      )}
+                    </button>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center space-y-6 animate-in fade-in zoom-in duration-300">
+                    <div className="p-4 bg-white rounded-3xl shadow-2xl">
+                      <QRCodeSVG 
+                        value={zapData.invoice.toUpperCase()} 
+                        size={200}
+                        level="M"
+                        includeMargin={false}
+                      />
+                    </div>
+                    
+                    <div className="text-center space-y-2">
+                      <p className="text-xs text-zinc-500 font-medium">Scan with any Bitcoin Lightning wallet</p>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => {
+                            navigator.clipboard.writeText(zapData.invoice!);
+                            addLog('Invoice copied to clipboard.', 'success');
+                          }}
+                          className="px-4 py-2 bg-zinc-800 text-zinc-300 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-zinc-700 transition-all border border-zinc-700"
+                        >
+                          Copy Invoice
+                        </button>
+                        <a 
+                          href={`lightning:${zapData.invoice}`}
+                          className="px-4 py-2 bg-amber-500 text-black rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-amber-400 transition-all"
+                        >
+                          Open Wallet
+                        </a>
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={() => {
+                        setShowZapDialog(false);
+                        setZapData(null);
+                      }}
+                      className="text-zinc-500 hover:text-white text-xs font-bold uppercase tracking-widest transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+
+                {zapData.error && (
+                  <div className="p-3 bg-red-900/20 border border-red-500/20 rounded-xl text-red-500 text-[10px] font-bold uppercase tracking-widest text-center">
+                    {zapData.error}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Global Zap Success Animation Overlay */}
+      <AnimatePresence>
+        {showZapSuccess && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] pointer-events-none flex items-center justify-center bg-emerald-500/10 backdrop-blur-[2px]"
+          >
+            <motion.div
+              initial={{ scale: 0.5, rotate: -20 }}
+              animate={{ scale: 1.5, rotate: 0 }}
+              className="flex flex-col items-center gap-4"
+            >
+              <div className="w-24 h-24 bg-amber-500 rounded-full flex items-center justify-center shadow-[0_0_50px_rgba(245,158,11,0.5)] border-4 border-white animate-bounce">
+                <Zap className="w-12 h-12 text-black fill-current" />
+              </div>
+              <h2 className="text-4xl font-black text-white italic uppercase tracking-tighter drop-shadow-2xl">Zapped!</h2>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 

@@ -1,22 +1,28 @@
-# EchoBot 🤖 v0.1.0
+# EchoBot 🤖 v0.1.1
 
 EchoBot is an intelligent, privacy-focused, on-device AI assistant for the **Nostr** protocol. It allows you to monitor network activity and engage with users using fully customizable AI identities—all running locally in your browser.
 
 ![EchoBot Banner](public/cover.svg)
 
-## ✨ v0.1.0: The Marketplace Update
+## ✨ v0.1.1: The Social & Value Update
 
-The 0.1.0 release introduces a full community integration layer, allowing users to share, discover, and import AI personalities directly over the Nostr network.
+The 0.1.1 release enhances the marketplace with decentralized social signals and value-for-value support, making discovery more interactive and rewarding for creators.
 
-### 🌟 Key Features
+### 🌟 New in v0.1.1
+
+- **NIP-57 Zaps**: Support your favorite bot creators directly! Send Lightning zaps to marketplace authors with full support for WebLN and QR code fallbacks.
+- **Social Curation**: A Reddit-style voting system using **Kind 7 Reactions**. Upvote great personas and downvote unhelpful ones to help the community discover the best bots.
+- **Creator Profiles**: Marketplace cards now display author avatars and names (fetched via **Kind 0 Metadata**) for better community recognition.
+- **Stable AI Engine**: Your selected AI model now persists across bot identity swaps, preventing unnecessary multi-hundred megabyte downloads.
+- **Reactions Tab**: Dedicated "Reactions" settings for each bot identity, allowing for custom emoji pools and toggleable engagement.
+- **Refined UI**: A redesigned marketplace card layout and improved site header for a more professional, high-density experience.
+
+### 🌟 Core Features
 
 - **On-Device LLMs**: Powered by Transformers.js, running models like **Gemma 3 270M**, **SmolLM2 360M**, and **Llama 3.2 1B** directly in your browser. No API keys required.
 - **Identity Marketplace**: Discover community-published personas or share your own using the new **Kind 38752** event type.
-- **Bot Central**: A unified, high-density manager for handling local identities and community imports in a single full-screen interface.
-- **NIP-07 Integration**: Sign in with your favorite Nostr extension (like Alby) to curate and publish personas to the network.
 - **Smart Onboarding**: A hardware-aware setup wizard that recommends the best AI model for your device's CPU and RAM.
 - **Performance Optimized**: Leverages **SharedArrayBuffer** and multi-threading, automatically scaling up to 8 CPU cores for lightning-fast inference.
-- **Dual-Layer System Prompt**: Combines hidden operational rules with user-defined personas for stable, character-accurate roleplay.
 - **Privacy First**: Your keys, bot configurations, and conversation histories never leave your local browser storage.
 
 ## 🚀 Getting Started
