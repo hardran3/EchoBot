@@ -530,6 +530,7 @@ export default function App() {
   const [emojiSearchQuery, setEmojiSearchQuery] = useState('');
   const [savedIdentities, setSavedIdentities] = useState<Identity[]>([]);
   const [activeIdentityId, setActiveIdentityId] = useState<string | null>(null);
+  const [targetFollows, setTargetFollows] = useState<string[]>([]);
 
   // AI Brain State
   const [aiStatus, setAiStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -1946,6 +1947,32 @@ export default function App() {
     addLog(`Monitoring ${targetRelays.length} total relays.`, 'info');
     setActiveRelays(targetRelays);
 
+    // --- NEW: Fetch our own follow list (Kind 3) ---
+    const fetchFollows = async () => {
+      if (!poolRef.current || !currentIdentity) return [];
+      try {
+        const followEvent = await poolRef.current.get(SEARCH_RELAYS, {
+          kinds: [3],
+          authors: [currentIdentity.pk]
+        });
+        if (followEvent) {
+          const follows = followEvent.tags
+            .filter(t => t[0] === 'p')
+            .map(t => t[1]);
+          setTargetFollows(follows);
+          return follows;
+        }
+      } catch (e) {
+        console.error('Failed to fetch follows:', e);
+      }
+      return [];
+    };
+
+    const follows = await fetchFollows();
+    if (follows.length > 0) {
+      addLog(`Monitoring feed from ${follows.length} followed accounts.`, 'info');
+    }
+
     // 2. Helper functions for processing events
     const scheduleReply = (event: any, relays: string[]) => {
       addTaskToQueue({
@@ -2148,6 +2175,8 @@ export default function App() {
 
             if (successCount > 0) {
               addLog(`Followed back ${pubkey.substring(0, 8)}...`, 'success');
+              // Update local state to include the new follow immediately
+              setTargetFollows(prev => [...new Set([...prev, pubkey])]);
             } else {
               addLog(`Failed to publish follow event.`, 'error');
             }
@@ -2304,6 +2333,20 @@ export default function App() {
         if (settings.repostNotes && !isReply && Math.random() < 0.1) {
            scheduleRepost(event, targetRelays);
         }
+        return;
+      }
+
+      // Check if it's from someone the bot follows (Feed Note)
+      if (targetFollows.includes(event.pubkey)) {
+        // Much lower probability for feed notes (5% for reply, 10% for reaction)
+        if (Math.random() < 0.05) {
+          addLog(`Interacting with feed note from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey);
+          scheduleReply(event, targetRelays);
+          scheduleReactions(event, targetRelays, true);
+        } else if (Math.random() < 0.1) {
+          addLog(`Reacting to feed note from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey);
+          scheduleReactions(event, targetRelays, true);
+        }
       }
     };
 
@@ -2320,6 +2363,16 @@ export default function App() {
         '#p': [currentIdentity!.pk],
         since: Math.floor(Date.now() / 1000)
       }, { onevent: eventHandler });
+
+    if (follows.length > 0) {
+      const subFeed = poolRef.current.subscribeMany(targetRelays,
+        {
+          kinds: [1],
+          authors: follows,
+          since: Math.floor(Date.now() / 1000)
+        }, { onevent: eventHandler });
+      subscriptionsRef.current.push(subFeed);
+    }
 
     subscriptionsRef.current.push(subTarget, subMentions);
     addLog('Subscription active. Monitoring for notes and mentions...', 'info');
