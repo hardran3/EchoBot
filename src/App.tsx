@@ -24,12 +24,14 @@ import {
   MessageSquare, 
   Clock, 
   RefreshCw,
+  Globe,
   AlertCircle,
   CheckCircle2,
   Info,
   Copy,
   Sparkles,
   Heart,
+  Zap,
   Save,
   Folder,
   Lock,
@@ -92,6 +94,7 @@ interface BotSettings {
   profile: ProfileInfo;
   reactToNotes: boolean;
   reactionEmojis: string;
+  useCuratorLightning: boolean;
   useAI: boolean;
   aiSystemPrompt: string;
   modelId: string;
@@ -426,6 +429,7 @@ const DEFAULT_SETTINGS: BotSettings = {
   },
   reactToNotes: false,
   reactionEmojis: DEFAULT_REACTION_EMOJIS,
+  useCuratorLightning: false,
   useAI: false,
   aiSystemPrompt: MODEL_DEFAULT_PROMPTS[SUPPORTED_MODELS[0].id].neutral,
   modelId: SUPPORTED_MODELS[0].id,
@@ -478,7 +482,7 @@ export default function App() {
   const aiWorkerRef = useRef<Worker | null>(null);
   const aiResolveRef = useRef<((value: string) => void) | null>(null);
   const conversationHistoryRef = useRef<Map<string, { role: string; content: string }[]>>(new Map());
-  const [processedEventsRef] = useState(() => new Set<string>());
+  const processedEventsRef = useRef(new Set<string>());
   const [playgroundMessages, setPlaygroundMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
   const [isPlaygroundThinking, setIsPlaygroundThinking] = useState(false);
   const [playgroundInput, setPlaygroundInput] = useState('');
@@ -890,6 +894,21 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY_SAVED_IDENTITIES, JSON.stringify(savedIdentities));
   }, [savedIdentities]);
 
+  // Curator Lightning Sync Logic
+  useEffect(() => {
+    if (settings.useCuratorLightning && curatorProfile?.lud16) {
+      if (settings.profile.lud16 !== curatorProfile.lud16) {
+        setSettings(s => ({
+          ...s,
+          profile: {
+            ...s.profile,
+            lud16: curatorProfile.lud16
+          }
+        }));
+      }
+    }
+  }, [settings.useCuratorLightning, curatorProfile?.lud16, settings.profile.lud16]);
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     addLog('Copied to clipboard.', 'info');
@@ -979,6 +998,7 @@ export default function App() {
         kind: KIND_BOT_IDENTITY,
         created_at: Math.floor(Date.now() / 1000),
         tags: [
+          ['d', activeIdentityId || 'default'],
           ['t', 'echobot-persona'],
           ['m', settings.modelId],
           ['n', settings.profile.name]
@@ -1527,13 +1547,21 @@ export default function App() {
     // 4. Initial catch-up (last 10 notes + 2 comments)
     addLog('Performing initial catch-up...', 'info');
     try {
-      const lastEvents = await poolRef.current.querySync(targetRelays, {
-        kinds: [1],
-        authors: [targetHex],
-        limit: 20
-      });
+      // Use a timeout for the catch-up query to prevent hanging
+      const fetchLastEvents = async () => {
+        return await poolRef.current!.querySync(targetRelays, {
+          kinds: [1],
+          authors: [targetHex],
+          limit: 20
+        });
+      };
 
-      if (lastEvents.length > 0) {
+      const lastEvents = await Promise.race([
+        fetchLastEvents(),
+        new Promise<any[]>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
+      ]);
+
+      if (lastEvents && lastEvents.length > 0) {
         const topLevelNotes = lastEvents.filter(n => {
           const eTags = n.tags.filter(t => t[0] === 'e');
           const isReply = eTags.some(t => t[3] === 'reply' || t[3] === 'root');
@@ -1794,20 +1822,29 @@ export default function App() {
                       {currentIdentity ? nip19.npubEncode(currentIdentity.pk) : 'Generating...'}
                     </div>
                     {currentIdentity && (
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1.5">
+                        <a 
+                          href={`https://jumble.social/users/${nip19.npubEncode(currentIdentity.pk)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1.5 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-500 hover:text-emerald-500 border border-transparent hover:border-zinc-700"
+                          title="View on Jumble.social"
+                        >
+                          <Globe className="w-4 h-4" />
+                        </a>
                         <button 
                           onClick={() => copyToClipboard(nip19.npubEncode(currentIdentity.pk))}
-                          className="p-1 hover:bg-zinc-800 rounded transition-colors text-zinc-500 hover:text-white"
+                          className="p-1.5 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-500 hover:text-white border border-transparent hover:border-zinc-700"
                           title="Copy npub"
                         >
-                          <Copy className="w-3 h-3" />
+                          <Copy className="w-4 h-4" />
                         </button>
                         <button 
                           onClick={() => copyToClipboard(nip19.nsecEncode(currentIdentity.sk))}
-                          className="p-1 hover:bg-zinc-800 rounded transition-colors text-zinc-500 hover:text-white"
+                          className="p-1.5 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-500 hover:text-white border border-transparent hover:border-zinc-700"
                           title="Copy nsec (Private Key)"
                         >
-                          <Lock className="w-3 h-3" />
+                          <Lock className="w-4 h-4" />
                         </button>
                       </div>
                     )}
@@ -2702,6 +2739,44 @@ export default function App() {
                             </div>
                           </div>
                         )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-zinc-400">
+                        <Zap className="w-4 h-4 text-amber-400" />
+                        <h4 className="text-xs font-bold uppercase tracking-widest">Payments</h4>
+                      </div>
+                      <div className="space-y-2">
+                        <label className={cn(
+                          "flex items-center justify-between p-3 bg-black border border-zinc-800 rounded-2xl transition-colors",
+                          (!curatorProfile?.lud16) ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:border-zinc-700"
+                        )}>
+                          <div className="space-y-0.5">
+                            <div className="text-sm font-medium text-white">Use Curator Lightning Address</div>
+                            <div className="text-[11px] text-zinc-500">
+                              {curatorProfile?.lud16 
+                                ? `Syncs ${curatorProfile.lud16} to this bot.` 
+                                : "No lightning address found in curator profile."}
+                            </div>
+                          </div>
+                          <div className={cn(
+                            "w-8 h-4 rounded-full transition-all relative",
+                            settings.useCuratorLightning ? "bg-emerald-500" : "bg-zinc-800"
+                          )}>
+                            <input 
+                              type="checkbox"
+                              checked={settings.useCuratorLightning}
+                              disabled={!curatorProfile?.lud16}
+                              onChange={(e) => setSettings(s => ({ ...s, useCuratorLightning: e.target.checked }))}
+                              className="sr-only"
+                            />
+                            <div className={cn(
+                              "absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all",
+                              settings.useCuratorLightning ? "left-4.5" : "left-0.5"
+                            )} />
+                          </div>
+                        </label>
                       </div>
                     </div>
 
