@@ -24,6 +24,7 @@ import {
   MessageSquare, 
   Clock, 
   RefreshCw,
+  Check,
   Globe,
   AlertCircle,
   CheckCircle2,
@@ -492,6 +493,7 @@ export default function App() {
   } | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [showSyncCheck, setShowSyncCheck] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<number>(() => {
     const saved = localStorage.getItem(STORAGE_KEY_LAST_SYNC);
     return saved ? parseInt(saved) : 0;
@@ -1226,6 +1228,8 @@ export default function App() {
       localStorage.setItem(STORAGE_KEY_LAST_SYNC, now.toString());
       
       addLog('Cloud sync complete!', 'success');
+      setShowSyncCheck(true);
+      setTimeout(() => setShowSyncCheck(false), 3000);
     } catch (e) {
       addLog(`Sync failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error');
     } finally {
@@ -3226,12 +3230,6 @@ export default function App() {
                           <Plus className="w-3 h-3" />
                           New Bot
                         </button>
-                        {lastSyncTime > 0 && (
-                          <div className="hidden md:flex flex-col items-end opacity-40 px-2 border-l border-zinc-800">
-                            <span className="text-[8px] font-bold uppercase tracking-tighter">Last Synced</span>
-                            <span className="text-[9px] font-medium">{new Date(lastSyncTime).toLocaleString()}</span>
-                          </div>
-                        )}
                         <button
                           onClick={syncWithCloud}
                           disabled={isSyncing || !userPubkey}
@@ -3242,8 +3240,12 @@ export default function App() {
                               : "bg-purple-500/10 text-purple-400 border-purple-500/20 hover:bg-purple-500 hover:text-black hover:border-purple-500"
                           )}
                         >
-                          <RefreshCw className={cn("w-3 h-3", isSyncing && "animate-spin")} />
-                          {isSyncing ? "Syncing..." : "Sync to Cloud"}
+                          {showSyncCheck ? (
+                            <Check className="w-3 h-3 text-emerald-400" />
+                          ) : (
+                            <RefreshCw className={cn("w-3 h-3", isSyncing && "animate-spin")} />
+                          )}
+                          Sync
                         </button>
                       </div>
                     </div>
