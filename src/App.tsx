@@ -80,12 +80,20 @@ interface ProfileInfo {
   lud06?: string;
 }
 
+interface BotStats {
+  repliesSent: number;
+  reactionsSent: number;
+  repliesReceived: number;
+  reactionsReceived: number;
+}
+
 interface Identity {
   id: string;
   name: string;
   settings: BotSettings;
   nsec: string;
   createdAt: number;
+  stats?: BotStats;
 }
 
 interface BotSettings {
@@ -1154,7 +1162,8 @@ export default function App() {
         targetNpub: '', // Reset target on import
         targetName: ''
       },
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      stats: INITIAL_STATS
     };
 
     setSavedIdentities(prev => [newIdentity, ...prev]);
@@ -1387,6 +1396,31 @@ export default function App() {
     }
   };
 
+  const INITIAL_STATS: BotStats = {
+    repliesSent: 0,
+    reactionsSent: 0,
+    repliesReceived: 0,
+    reactionsReceived: 0
+  };
+
+  const updateIdentityStats = useCallback((id: string, update: Partial<BotStats>) => {
+    setSavedIdentities(prev => prev.map(identity => {
+      if (identity.id === id) {
+        const stats = identity.stats || { ...INITIAL_STATS };
+        return {
+          ...identity,
+          stats: {
+            repliesSent: stats.repliesSent + (update.repliesSent || 0),
+            reactionsSent: stats.reactionsSent + (update.reactionsSent || 0),
+            repliesReceived: stats.repliesReceived + (update.repliesReceived || 0),
+            reactionsReceived: stats.reactionsReceived + (update.reactionsReceived || 0),
+          }
+        };
+      }
+      return identity;
+    }));
+  }, []);
+
   const saveIdentity = async (name: string) => {
     if (!currentIdentity) return;
     const nsec = nip19.nsecEncode(currentIdentity.sk);
@@ -1396,7 +1430,8 @@ export default function App() {
       name,
       settings: settings,
       nsec,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      stats: INITIAL_STATS
     };
 
     setSavedIdentities(prev => [newIdentity, ...prev]);
@@ -1467,7 +1502,8 @@ export default function App() {
       name: profile.name,
       nsec,
       settings: newSettings,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      stats: INITIAL_STATS
     };
 
     setSavedIdentities(prev => [newIdentity, ...prev]);
@@ -1728,6 +1764,7 @@ export default function App() {
 
             if (successCount > 0) {
               addLog(`Replied: "${message.substring(0, 30)}..." (Sent to ${successCount}/${allRelays.length} relays)`, 'success');
+              if (activeIdentityId) updateIdentityStats(activeIdentityId, { repliesSent: 1 });
             } else {
               addLog(`Failed to publish reply to any relay.`, 'error');
             }
@@ -1742,7 +1779,7 @@ export default function App() {
       if (!settings.reactToNotes) return;
 
       // 1. Build the reaction pool
-      const allEmojis: string[] = ['+'];
+      const allEmojis: string[] = [];
       if (settings.reactionEmojis) {
         const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
         const customEmojis = [...segmenter.segment(settings.reactionEmojis.trim())]
@@ -1750,6 +1787,9 @@ export default function App() {
           .filter(c => c.trim() !== '');
         allEmojis.push(...customEmojis);
       }
+
+      // If no emojis are configured, we can't react
+      if (allEmojis.length === 0) return;
 
       // 2. Always pick exactly one random reaction
       const numToPick = 1;
@@ -1780,6 +1820,7 @@ export default function App() {
               
               if (successCount > 0) {
                 addLog(`Reacted with "${emoji}" (Sent to ${successCount}/${allRelays.length} relays)`, 'success');
+                if (activeIdentityId) updateIdentityStats(activeIdentityId, { reactionsSent: 1 });
               } else {
                 addLog(`Reaction failed to publish.`, 'error');
               }
@@ -1882,13 +1923,20 @@ export default function App() {
       if (isVerbose) {
         addLog(`Event received: ${event.id.substring(0, 8)} (Kind: ${event.kind})`, 'info');
       }
+
+      // Track received stats
+      const mentionsSelf = event.tags.some((t: any) => t[0] === 'p' && t[1] === currentIdentity!.pk);
+      if (mentionsSelf && activeIdentityId) {
+        if (event.kind === 1) updateIdentityStats(activeIdentityId, { repliesReceived: 1 });
+        if (event.kind === 7) updateIdentityStats(activeIdentityId, { reactionsReceived: 1 });
+      }
+
+      if (event.kind === 7) return; // Don't process reactions further
       
       const eTags = event.tags.filter((t: any) => t[0] === 'e');
       const isReply = eTags.some((t: any) => t[3] === 'reply' || t[3] === 'root');
       
       // Check if it's a mention/reply to us from someone else
-      const mentionsSelf = event.tags.some((t: any) => t[0] === 'p' && t[1] === currentIdentity!.pk);
-
       if (mentionsSelf && event.pubkey !== targetHex) {
         addLog(`New mention/reply from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success');
         scheduleReply(event, targetRelays);
@@ -1931,7 +1979,7 @@ export default function App() {
 
     const subMentions = poolRef.current.subscribeMany([...new Set([...targetRelays, ...PUBLISH_RELAYS])], 
       {
-        kinds: [1],
+        kinds: [1, 7],
         '#p': [currentIdentity!.pk],
         since: Math.floor(Date.now() / 1000)
       }, { onevent: eventHandler });
@@ -2549,7 +2597,7 @@ export default function App() {
                             <label className="flex items-center justify-between p-4 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
                               <div className="space-y-1">
                                 <div className="text-base font-bold text-white uppercase tracking-wider">Enable Reactions</div>
-                                <div className="text-xs text-zinc-500">The bot will send "+" and your custom emojis to the target's notes.</div>
+                                <div className="text-xs text-zinc-500">The bot will send your custom emojis to the target's notes.</div>
                               </div>
                               <div className={cn(
                                 "w-10 h-5 rounded-full transition-all relative",
@@ -2588,7 +2636,7 @@ export default function App() {
                                     </button>
                                   </div>
                                   <p className="text-[11px] text-zinc-500 italic">
-                                    The bot will pick one random emoji from this list (plus the standard "+") for each reaction.
+                                    The bot will pick one random emoji from this list for each reaction.
                                   </p>
                                 </div>
                               </div>
@@ -2738,43 +2786,77 @@ export default function App() {
                             <div 
                               key={identity.id}
                               className={cn(
-                                "group p-3 rounded-2xl border transition-all flex items-center gap-3 relative overflow-hidden",
+                                "group p-4 rounded-3xl border transition-all flex flex-col gap-4 relative overflow-hidden",
                                 activeIdentityId === identity.id 
                                   ? "bg-emerald-500/5 border-emerald-500/30" 
                                   : "bg-black/40 border-zinc-800 hover:border-zinc-700"
                               )}
                             >
-                              <img 
-                                src={identity.settings.profile.picture} 
-                                alt="" 
-                                className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 object-cover"
-                                crossOrigin="anonymous"
-                              />
-                              <div className="min-w-0 flex-1">
-                                <h4 className="text-sm font-bold text-white truncate">{identity.name}</h4>
-                                <p className="text-[10px] text-zinc-500 font-mono truncate">{nip19.npubEncode(getPublicKey(nip19.decode(identity.nsec).data as any)).substring(0, 10)}...</p>
-                              </div>
-                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                {activeIdentityId !== identity.id && (
+                              <div className="flex items-center gap-3">
+                                <img 
+                                  src={identity.settings.profile.picture} 
+                                  alt="" 
+                                  className="w-12 h-12 rounded-xl bg-zinc-800 border border-zinc-700 object-cover"
+                                  crossOrigin="anonymous"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <h4 className="text-base font-bold text-white truncate">{identity.name}</h4>
+                                  <p className="text-[10px] text-zinc-500 font-mono truncate">{nip19.npubEncode(getPublicKey(nip19.decode(identity.nsec).data as any)).substring(0, 14)}...</p>
+                                </div>
+                                
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  {activeIdentityId !== identity.id && (
+                                    <button 
+                                      onClick={() => loadIdentity(identity)}
+                                      className="p-2 bg-zinc-800 text-emerald-400 rounded-xl hover:bg-emerald-500 hover:text-black transition-all shadow-lg"
+                                      title="Load Identity"
+                                    >
+                                      <Play className="w-4 h-4 fill-current" />
+                                    </button>
+                                  )}
                                   <button 
-                                    onClick={() => loadIdentity(identity)}
-                                    className="p-1.5 bg-zinc-800 text-emerald-400 rounded-lg hover:bg-emerald-500 hover:text-black transition-all"
-                                    title="Load Identity"
+                                    onClick={() => deleteIdentity(identity.id)}
+                                    className="p-2 bg-zinc-800 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-lg"
+                                    title="Delete"
                                   >
-                                    <Play className="w-3.5 h-3.5 fill-current" />
+                                    <Trash2 className="w-4 h-4" />
                                   </button>
-                                )}
-                                <button 
-                                  onClick={() => deleteIdentity(identity.id)}
-                                  className="p-1.5 bg-zinc-800 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all"
-                                  title="Delete"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                </div>
                               </div>
+
+                              {/* Stats Infocard */}
+                              <div className="grid grid-cols-2 gap-2 p-3 bg-black/40 border border-zinc-800/50 rounded-2xl">
+                                <div className="space-y-0.5 border-r border-zinc-800/50 pr-2">
+                                  <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Sent</p>
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-1" title="Replies Sent">
+                                      <MessageSquare className="w-2.5 h-2.5 text-emerald-500" />
+                                      <span className="text-xs font-bold text-zinc-300">{identity.stats?.repliesSent || 0}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1" title="Reactions Sent">
+                                      <Heart className="w-2.5 h-2.5 text-pink-500" />
+                                      <span className="text-xs font-bold text-zinc-300">{identity.stats?.reactionsSent || 0}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="space-y-0.5 pl-1">
+                                  <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Received</p>
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-1" title="Replies Received">
+                                      <MessageSquare className="w-2.5 h-2.5 text-emerald-500 fill-current opacity-20" />
+                                      <span className="text-xs font-bold text-zinc-300">{identity.stats?.repliesReceived || 0}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1" title="Reactions Received">
+                                      <Heart className="w-2.5 h-2.5 text-pink-500 fill-current opacity-20" />
+                                      <span className="text-xs font-bold text-zinc-300">{identity.stats?.reactionsReceived || 0}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
                               {activeIdentityId === identity.id && (
-                                <div className="absolute top-0 right-0 p-1">
-                                  <span className="px-1.5 py-0.5 bg-emerald-500 text-black text-[8px] font-black uppercase tracking-tighter rounded-bl-lg">Active</span>
+                                <div className="absolute top-0 right-0 p-1.5">
+                                  <span className="px-2 py-0.5 bg-emerald-500 text-black text-[8px] font-black uppercase tracking-tighter rounded-bl-lg shadow-lg">Active</span>
                                 </div>
                               )}
                             </div>
