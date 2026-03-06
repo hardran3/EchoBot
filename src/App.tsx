@@ -116,6 +116,7 @@ interface BotSettings {
   reactToNotes: boolean;
   reactionEmojis: string;
   repostNotes: boolean;
+  repostChance: number; // 0.0 to 1.0
   autoFollowBack: boolean;
   useAI: boolean;
   aiSystemPrompt: string;
@@ -453,6 +454,7 @@ const DEFAULT_SETTINGS: BotSettings = {
   reactToNotes: false,
   reactionEmojis: DEFAULT_REACTION_EMOJIS,
   repostNotes: false,
+  repostChance: 0.25,
   autoFollowBack: false,
   useAI: false,
   aiSystemPrompt: MODEL_DEFAULT_PROMPTS[SUPPORTED_MODELS[0].id].neutral,
@@ -1111,14 +1113,17 @@ export default function App() {
     }
   };
 
-  const syncWithCloud = async () => {
+  const lastPushedDataRef = useRef<string>('');
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const performSync = async (silent = false) => {
     if (!userPubkey || !window.nostr?.nip44) {
-      addLog('NIP-44 capable extension required for cloud sync.', 'error');
+      if (!silent) addLog('NIP-44 capable extension required for cloud sync.', 'error');
       return;
     }
 
     setIsSyncing(true);
-    addLog('Starting cloud sync...', 'info');
+    if (!silent) addLog('Starting cloud sync...', 'info');
 
     try {
       if (!poolRef.current) poolRef.current = new SimplePool();
@@ -1136,7 +1141,7 @@ export default function App() {
           const decrypted = await window.nostr.nip44.decrypt(userPubkey, cloudEvent.content);
           cloudIdentities = JSON.parse(decrypted);
         } catch (e) {
-          addLog('Failed to decrypt cloud data.', 'error');
+          if (!silent) addLog('Failed to decrypt cloud data.', 'error');
           setIsSyncing(false);
           return;
         }
@@ -1151,7 +1156,7 @@ export default function App() {
       // Merge local identities
       savedIdentities.forEach(local => {
         const cloud = mergedMap.get(local.id);
-        if (!cloud || local.updatedAt > cloud.updatedAt) {
+        if (!cloud || (local.updatedAt || 0) > (cloud.updatedAt || 0)) {
           // Local is newer or doesn't exist in cloud
           if (cloud) {
             // Merge stats maps
@@ -1180,9 +1185,16 @@ export default function App() {
       });
 
       const mergedList = Array.from(mergedMap.values());
+      const dataString = JSON.stringify(mergedList);
+
+      // 3. Skip if no changes since last push
+      if (dataString === lastPushedDataRef.current) {
+        if (!silent) addLog('Cloud is already up to date.', 'info');
+        return;
+      }
 
       // 3. Encrypt and Push
-      const encrypted = await window.nostr.nip44.encrypt(userPubkey, JSON.stringify(mergedList));
+      const encrypted = await window.nostr.nip44.encrypt(userPubkey, dataString);
       const event = {
         kind: 30078,
         created_at: Math.floor(Date.now() / 1000),
@@ -1195,21 +1207,68 @@ export default function App() {
       const pubs = poolRef.current.publish(PUBLISH_RELAYS, signed);
       await Promise.allSettled(pubs);
 
-      // 4. Update Local State
+      // 4. Update Local State & Ref
+      lastPushedDataRef.current = dataString;
       setSavedIdentities(mergedList);
       const now = Date.now();
       setLastSyncTime(now);
       localStorage.setItem(STORAGE_KEY_LAST_SYNC, now.toString());
       
-      addLog('Cloud sync complete!', 'success');
-      setShowSyncCheck(true);
-      setTimeout(() => setShowSyncCheck(false), 3000);
+      if (!silent) {
+        addLog('Cloud sync complete!', 'success');
+        setShowSyncCheck(true);
+        setTimeout(() => setShowSyncCheck(false), 3000);
+      }
     } catch (e) {
-      addLog(`Sync failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error');
+      if (!silent) addLog(`Sync failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error');
     } finally {
       setIsSyncing(false);
     }
   };
+
+  const syncWithCloud = () => performSync(false);
+
+  // Initial Sync on login
+  useEffect(() => {
+    if (userPubkey && window.nostr?.nip44) {
+      performSync(true);
+    }
+  }, [userPubkey]);
+
+  // Debounced Auto-Sync for identity/settings changes
+  useEffect(() => {
+    if (!userPubkey) return;
+    
+    // Check if identities/settings changed (excluding stats)
+    // We stringify the settings part of identities to compare
+    const coreData = JSON.stringify(savedIdentities.map(id => ({
+      id: id.id,
+      settings: id.settings,
+      updatedAt: id.updatedAt,
+      deleted: id.deleted
+    })));
+
+    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+
+    syncTimeoutRef.current = setTimeout(() => {
+      performSync(true);
+    }, 30000); // 30 second debounce
+
+    return () => {
+      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+    };
+  }, [savedIdentities, userPubkey]);
+
+  // Interval Sync for stats (every 10 minutes)
+  useEffect(() => {
+    if (!userPubkey) return;
+
+    const interval = setInterval(() => {
+      performSync(true);
+    }, 10 * 60 * 1000); // 10 minutes
+
+    return () => clearInterval(interval);
+  }, [userPubkey]);
 
   const fetchCommunityPersonas = async () => {
     if (isDiscovering) return;
@@ -1666,6 +1725,38 @@ export default function App() {
       setActiveIdentityId(identity.id);
       addLog(`Loaded identity: ${identity.settings.profile.name}`, 'success');
       setShowIdentityManager(false);
+
+      // --- NEW: Fetch target profile for UI visibility ---
+      if (identity.settings.targetNpub) {
+        try {
+          const decoded = nip19.decode(identity.settings.targetNpub) as any;
+          if (decoded.type === 'npub') {
+            const targetHex = decoded.data;
+            if (!communityProfiles[targetHex]) {
+              if (!poolRef.current) poolRef.current = new SimplePool();
+              poolRef.current.get(SEARCH_RELAYS, {
+                kinds: [0],
+                authors: [targetHex]
+              }).then(profileEvent => {
+                if (profileEvent) {
+                  try {
+                    const content = JSON.parse(profileEvent.content);
+                    setCommunityProfiles(prev => ({
+                      ...prev,
+                      [targetHex]: {
+                        name: content.name || content.display_name || '',
+                        about: content.about || '',
+                        picture: content.picture || '',
+                        nip05: content.nip05 || ''
+                      }
+                    }));
+                  } catch (e) {}
+                }
+              });
+            }
+          }
+        } catch (e) {}
+      }
     } catch (e) {
       addLog('Failed to load identity.', 'error');
     }
@@ -1923,6 +2014,36 @@ export default function App() {
     let targetRelays = (identity.settings as any).relays?.length > 0 ? (identity.settings as any).relays : [...PUBLISH_RELAYS];
 
     try {
+      const profileEvent = await poolRef.current.get(SEARCH_RELAYS, {
+        kinds: [0],
+        authors: [targetHex]
+      });
+
+      if (profileEvent) {
+        try {
+          const content = JSON.parse(profileEvent.content);
+          // Cache the profile for UI visibility
+          setCommunityProfiles(prev => ({
+            ...prev,
+            [targetHex]: {
+              name: content.name || content.display_name || '',
+              about: content.about || '',
+              picture: content.picture || '',
+              nip05: content.nip05 || ''
+            }
+          }));
+
+          if (content.relays && typeof content.relays === 'object') {
+            const profileRelays = Object.keys(content.relays);
+            if (profileRelays.length > 0) {
+              targetRelays = [...new Set([...profileRelays, ...PUBLISH_RELAYS])];
+              addLog(`Found ${profileRelays.length} relays for ${identity.name} via profile.`, 'success');
+            }
+          }
+        } catch (e) {}
+      }
+
+      // Check NIP-65 too for most accurate relay list
       const nip65Event = await poolRef.current.get(SEARCH_RELAYS, {
         kinds: [10002],
         authors: [targetHex]
@@ -1933,31 +2054,12 @@ export default function App() {
           .filter(t => t[0] === 'r')
           .map(t => t[1]);
         if (relays.length > 0) {
-          targetRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
-          addLog(`Found ${relays.length} relays for ${identity.name} via NIP-65.`, 'success');
-        }
-      } else {
-        // Fallback: Check profile for relay hints
-        const profileEvent = await poolRef.current.get(SEARCH_RELAYS, {
-          kinds: [0],
-          authors: [targetHex]
-        });
-
-        if (profileEvent) {
-          try {
-            const content = JSON.parse(profileEvent.content);
-            if (content.relays && typeof content.relays === 'object') {
-              const profileRelays = Object.keys(content.relays);
-              if (profileRelays.length > 0) {
-                targetRelays = [...new Set([...profileRelays, ...PUBLISH_RELAYS])];
-                addLog(`Found ${profileRelays.length} relays for ${identity.name} via profile.`, 'success');
-              }
-            }
-          } catch (e) {}
+          targetRelays = [...new Set([...relays, ...targetRelays])];
+          addLog(`Updated relays for ${identity.name} via NIP-65.`, 'success');
         }
       }
     } catch (e) {
-      addLog(`Relay discovery failed for ${identity.name}, using defaults.`, 'warning');
+      addLog(`Profile/Relay discovery failed for ${identity.name}, using defaults.`, 'warning');
     }
 
     // 2. Helper functions for processing events
@@ -2073,6 +2175,14 @@ export default function App() {
 
     const scheduleRepost = (event: any, relays: string[]) => {
       if (!identity.settings.repostNotes) return;
+
+      // 1. Only repost top-level notes (no 'e' tags)
+      const hasETags = event.tags?.some((t: string[]) => t[0] === 'e');
+      if (hasETags) return;
+
+      // 2. Chance check
+      const chance = identity.settings.repostChance ?? 0.25;
+      if (Math.random() > chance) return;
 
       addTaskToQueue({
         id: `repost-${event.id}-${Math.random()}`,
@@ -2280,47 +2390,69 @@ export default function App() {
                   </span>
                 </div>
 
-                <div className="space-y-2.5">
-                  {savedIdentities.filter(id => isRunning(id.id)).map(bot => (
-                    <div key={bot.id} className="p-3 bg-black/40 border border-emerald-500/10 rounded-xl space-y-2 group/bot">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <img 
-                            src={bot.settings.profile.picture} 
-                            alt="" 
-                            className="w-6 h-6 rounded-lg bg-zinc-800 border border-zinc-700/50"
-                            crossOrigin="anonymous"
-                          />
+                <div className="space-y-1.5">
+                  {savedIdentities.filter(id => isRunning(id.id)).map(bot => {
+                    const targetPubkey = (() => {
+                      try {
+                        const decoded = nip19.decode(bot.settings.targetNpub) as any;
+                        return decoded.data as string;
+                      } catch (e) { return ''; }
+                    })();
+                    const targetProfile = targetPubkey ? communityProfiles[targetPubkey] : null;
+
+                    return (
+                      <div key={bot.id} className="p-2.5 bg-black/40 border border-emerald-500/10 rounded-xl group/bot flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="relative shrink-0">
+                            <img 
+                              src={bot.settings.profile.picture} 
+                              alt="" 
+                              className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700/50 object-cover"
+                              crossOrigin="anonymous"
+                            />
+                            <div className="absolute -bottom-1 -right-1">
+                              <img 
+                                src={targetProfile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${targetPubkey || bot.settings.targetNpub}`} 
+                                alt="" 
+                                className="w-4 h-4 rounded-full bg-zinc-900 border border-black object-cover shadow-lg"
+                                crossOrigin="anonymous"
+                              />
+                            </div>
+                          </div>
                           <div className="min-w-0">
-                            <p className="text-xs font-bold text-white truncate">{bot.name}</p>
-                            <p className="text-[8px] text-zinc-500 truncate font-mono">{"->"} {bot.settings.targetName || bot.settings.targetNpub.substring(0, 8)}</p>
+                            <p className="text-sm font-bold text-white truncate leading-tight">{bot.name}</p>
+                            <p className="text-[10px] text-zinc-500 truncate font-bold flex items-center gap-1 leading-tight">
+                              <span className="opacity-50 uppercase text-[8px] tracking-tighter">vs</span>
+                              <span className="text-emerald-500/80">{bot.settings.targetName || targetProfile?.name || bot.settings.targetNpub.substring(0, 8)}</span>
+                            </p>
                           </div>
                         </div>
+
+                        <div className="flex items-center gap-4 shrink-0 px-3 py-1 bg-zinc-900/50 rounded-lg border border-zinc-800/50">
+                          <div className="flex items-center gap-1.5" title="Replies">
+                            <MessageSquare className="w-3 h-3 text-emerald-500/60" />
+                            <span className="text-xs font-mono font-bold text-zinc-300">{sessionStats[bot.id]?.replies || 0}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5" title="Reactions">
+                            <Heart className="w-3 h-3 text-pink-500/60" />
+                            <span className="text-xs font-mono font-bold text-zinc-300">{sessionStats[bot.id]?.reactions || 0}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5" title="Reposts">
+                            <RefreshCw className="w-3 h-3 text-purple-500/60" />
+                            <span className="text-xs font-mono font-bold text-zinc-300">{sessionStats[bot.id]?.reposts || 0}</span>
+                          </div>
+                        </div>
+
                         <button 
                           onClick={() => stopBot(bot.id)}
-                          className="p-1.5 hover:bg-red-500/20 text-zinc-600 hover:text-red-400 transition-all rounded-lg opacity-0 group-hover/bot:opacity-100"
+                          className="p-2 hover:bg-red-500/20 text-zinc-700 hover:text-red-400 transition-all rounded-lg shrink-0 group-hover/bot:bg-zinc-800/50"
                           title="Stop this bot"
                         >
-                          <Square className="w-3 h-3 fill-current" />
+                          <Square className="w-3.5 h-3.5 fill-current" />
                         </button>
                       </div>
-
-                      <div className="grid grid-cols-3 gap-1 pt-1 border-t border-zinc-800/50">
-                        <div className="flex flex-col items-center py-1">
-                          <span className="text-[7px] font-black uppercase text-zinc-600 tracking-tighter">Replies</span>
-                          <span className="text-[10px] font-mono font-bold text-emerald-500/80">{sessionStats[bot.id]?.replies || 0}</span>
-                        </div>
-                        <div className="flex flex-col items-center py-1 border-x border-zinc-800/50">
-                          <span className="text-[7px] font-black uppercase text-zinc-600 tracking-tighter">Reacts</span>
-                          <span className="text-[10px] font-mono font-bold text-pink-500/80">{sessionStats[bot.id]?.reactions || 0}</span>
-                        </div>
-                        <div className="flex flex-col items-center py-1">
-                          <span className="text-[7px] font-black uppercase text-zinc-600 tracking-tighter">Reposts</span>
-                          <span className="text-[10px] font-mono font-bold text-purple-500/80">{sessionStats[bot.id]?.reposts || 0}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </motion.section>
             )}
@@ -2974,8 +3106,26 @@ export default function App() {
                               </div>
                             </label>
 
-                            {/* Auto Follow Back Toggle */}
-                            <label className="flex items-center justify-between p-4 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
+                            {settings.repostNotes && (
+                              <div className="p-4 bg-zinc-900/30 border border-zinc-800/50 rounded-2xl space-y-3">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Repost Probability</span>
+                                  <span className="text-xs font-mono font-bold text-emerald-500">{Math.round((settings.repostChance ?? 0.25) * 100)}%</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="0.01"
+                                  max="1.0"
+                                  step="0.01"
+                                  value={settings.repostChance ?? 0.25}
+                                  onChange={(e) => setSettings(s => ({ ...s, repostChance: parseFloat(e.target.value) }))}
+                                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                                />
+                                <p className="text-[10px] text-zinc-500 italic">Only top-level notes from the target will be considered for reposting.</p>
+                              </div>
+                            )}
+
+                            {/* Auto Follow Back Toggle */}                            <label className="flex items-center justify-between p-4 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
                               <div className="space-y-1">
                                 <div className="text-base font-bold text-white uppercase tracking-wider">Follow Back Users</div>
                                 <div className="text-xs text-zinc-500 text-balance">Automatically follow users who interact with the bot's notes.</div>
@@ -3147,11 +3297,16 @@ export default function App() {
                           )}
                         >
                           {showSyncCheck ? (
-                            <Check className="w-3 h-3 text-emerald-400" />
+                            <>
+                              <Check className="w-3 h-3 text-emerald-400" />
+                              Synced
+                            </>
                           ) : (
-                            <RefreshCw className={cn("w-3 h-3", isSyncing && "animate-spin")} />
+                            <>
+                              <RefreshCw className={cn("w-3 h-3", isSyncing && "animate-spin")} />
+                              {isSyncing ? "Syncing..." : "Sync"}
+                            </>
                           )}
-                          Sync
                         </button>
                       </div>
                     </div>
@@ -3258,26 +3413,45 @@ export default function App() {
                                 </div>
                               </div>
 
-                              {activeIdentityId === identity.id && (
-                                <div className="absolute top-0 right-0 p-1.5 flex flex-col items-end gap-1">
-                                  <span className="px-2 py-0.5 bg-emerald-500 text-black text-[8px] font-black uppercase tracking-tighter rounded-bl-lg shadow-lg">Focused</span>
-                                  {!isRunning(identity.id) && (
-                                    <span className="text-[7px] font-bold text-zinc-500 uppercase tracking-tighter bg-black/40 px-1 py-0.5 rounded-sm border border-zinc-800/50">
-                                      Target: {identity.settings.targetName || identity.settings.targetNpub.substring(0, 8)}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
+                              {/* Unified Status Bar at Bottom */}
+                              {(activeIdentityId === identity.id || isRunning(identity.id)) && (
+                                <div className={cn(
+                                  "mt-auto -mx-4 -mb-4 px-4 py-2.5 border-t flex items-center justify-between",
+                                  isRunning(identity.id) 
+                                    ? "bg-emerald-500/10 border-emerald-500/20" 
+                                    : "bg-emerald-500/5 border-emerald-500/10"
+                                )}>
+                                  <div className="flex items-center gap-2">
+                                    {isRunning(identity.id) ? (
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.6)]" />
+                                        <span className="text-[11px] font-black uppercase tracking-widest text-emerald-500">Live</span>
+                                      </div>
+                                    ) : (
+                                      <span className="text-[11px] font-black uppercase tracking-widest text-emerald-500/60">Focused</span>
+                                    )}
+                                  </div>
 
-                              {isRunning(identity.id) && (
-                                <div className="absolute top-0 left-0 p-1.5 max-w-[70%]">
-                                  <div className="flex items-center gap-1.5 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-br-lg border-r border-b border-emerald-500/30 overflow-hidden">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)] shrink-0" />
-                                    <span className="text-emerald-500 text-[8px] font-black uppercase tracking-tighter shrink-0">Live</span>
-                                    <div className="w-[1px] h-2 bg-emerald-500/20 shrink-0 mx-0.5" />
-                                    <span className="text-[8px] font-bold text-zinc-400 truncate tracking-tight">
-                                      {identity.settings.targetName || identity.settings.targetNpub.substring(0, 10)}
-                                    </span>
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    {(() => {
+                                      const targetPk = (() => {
+                                        try { return nip19.decode(identity.settings.targetNpub).data as string; } catch (e) { return ''; }
+                                      })();
+                                      const profile = targetPk ? communityProfiles[targetPk] : null;
+                                      return (
+                                        <>
+                                          <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter shrink-0">Target:</span>
+                                          <img 
+                                            src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${targetPk || identity.settings.targetNpub}`} 
+                                            className="w-5 h-5 rounded-full object-cover border border-zinc-700 shrink-0 shadow-md" 
+                                            alt=""
+                                          />
+                                          <span className="text-[11px] font-bold text-zinc-300 truncate tracking-tight">
+                                            {identity.settings.targetName || profile?.name || identity.settings.targetNpub.substring(0, 8)}
+                                          </span>
+                                        </>
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                               )}
