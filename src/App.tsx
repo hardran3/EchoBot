@@ -43,7 +43,10 @@ import {
   Users,
   Wand2,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  PenTool,
+  Calendar,
+  UserCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -94,6 +97,15 @@ interface BotStats {
   reactionsReceived: Record<string, number>;
 }
 
+interface ProactiveSettings {
+  enabled: boolean;
+  interval: number; // minutes, 0 for disabled
+  inspiration: 'target' | 'follows' | 'both';
+  replyToMentions: boolean;
+  replyProbability: number; // 0.0 to 1.0
+  aiPostPrompt: string;
+}
+
 interface Identity {
   id: string;
   name: string;
@@ -104,6 +116,8 @@ interface Identity {
   updatedAt: number;
   deleted?: boolean;
   stats?: BotStats;
+  lastProactivePost?: number; // timestamp
+  nextProactiveTimestamp?: number; // timestamp with jitter
 }
 
 interface BotSettings {
@@ -129,6 +143,7 @@ interface BotSettings {
   presence_penalty: number;
   frequency_penalty: number;
   relays?: string[];
+  proactive: ProactiveSettings;
 }
 
 const SUPPORTED_MODELS = [
@@ -459,7 +474,15 @@ const DEFAULT_SETTINGS: BotSettings = {
   useAI: false,
   aiSystemPrompt: MODEL_DEFAULT_PROMPTS[SUPPORTED_MODELS[0].id].neutral,
   modelId: SUPPORTED_MODELS[0].id,
-  ...MODEL_PRESETS[SUPPORTED_MODELS[0].id]['Balanced Chat'] as any
+  ...MODEL_PRESETS[SUPPORTED_MODELS[0].id]['Balanced Chat'] as any,
+  proactive: {
+    enabled: false,
+    interval: 240, // 4 hours
+    inspiration: 'target',
+    replyToMentions: true,
+    replyProbability: 0.5,
+    aiPostPrompt: 'Write a short, engaging status update about your current thoughts. Be concise and stay in character.'
+  }
 };
 
 // --- Constants ---
@@ -532,7 +555,8 @@ export default function App() {
     return localStorage.getItem(STORAGE_KEY_GLOBAL_LIGHTNING_SYNC) === 'true';
   });
   const [rightTab, setRightTab] = useState<'timeline' | 'persona'>('timeline');
-  const [personaSubTab, setPersonaSubTab] = useState<'profile' | 'prompt' | 'tuning' | 'behavior'>('profile');
+  const [personaSubTab, setPersonaSubTab] = useState<'profile' | 'prompt' | 'tuning' | 'behavior' | 'proactive'>('profile');
+  const [proactiveSubTab, setProactiveSubTab] = useState<'config' | 'schedule'>('config');
   const [showIdentityManager, setShowIdentityManager] = useState(false);
   const [showAddIdentityDialog, setShowAddIdentityDialog] = useState(false);
   const [showEmojiPickerDialog, setShowEmojiPickerDialog] = useState(false);
@@ -608,14 +632,85 @@ export default function App() {
     }
   };
 
-  async function generateBotMessage(botSettings: BotSettings, targetNpub?: string, content?: string, context?: { pubkey: string; content: string }[]): Promise<string> {
-    if (!botSettings.useAI || aiStatus !== 'ready' || !aiWorkerRef.current || !content) {
-      addLog('AI Brain is not ready. Skipping reply.', 'warning');
+  async function getInspirationNotes(identity: Identity, limit = 10): Promise<{ pubkey: string; content: string }[]> {
+    if (!poolRef.current) poolRef.current = new SimplePool();
+    const authors: string[] = [];
+    
+    // 1. Get Target Pubkey
+    if (identity.settings.targetNpub) {
+      try {
+        const decoded = nip19.decode(identity.settings.targetNpub) as any;
+        if (decoded.type === 'npub') {
+          authors.push(decoded.data);
+        }
+      } catch (e) {}
+    }
+
+    // 2. Get Follow List (if requested or if no target)
+    if (identity.settings.proactive.inspiration !== 'target' || authors.length === 0) {
+      try {
+        const { data: sk } = nip19.decode(identity.nsec);
+        const pk = getPublicKey(sk as any);
+        const contactList = await poolRef.current.get(SEARCH_RELAYS, { kinds: [3], authors: [pk] });
+        if (contactList) {
+          const follows = contactList.tags.filter(t => t[0] === 'p').map(t => t[1]);
+          if (follows.length > 0) {
+            authors.push(...follows.slice(0, 20)); // Limit to 20 follows for context safety
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (authors.length === 0) return [];
+
+    try {
+      // Use list with a timeout to prevent hanging/memory leaks
+      const notes = await Promise.race([
+        poolRef.current.querySync(SEARCH_RELAYS, {
+          kinds: [1],
+          authors: [...new Set(authors)],
+          limit
+        }),
+        new Promise<any[]>((_, reject) => setTimeout(() => reject(new Error('Inspiration fetch timeout')), 5000))
+      ]);
+
+      // Clean and truncate note content to prevent context explosion
+      return (notes || []).map(n => {
+        let cleaned = n.content
+          .replace(/https?:\/\/\S+/gi, '') // Remove URLs
+          .replace(/nostr:\S+/gi, '')      // Remove nostr: links
+          .replace(/\s+/g, ' ')            // Collapse whitespace
+          .trim();
+        
+        return { 
+          pubkey: n.pubkey, 
+          content: cleaned.substring(0, 280) 
+        };
+      }).filter(n => n.content.length > 5); // Skip empty or tiny notes
+    } catch (e) {
+      console.warn('Failed to fetch inspiration notes:', e);
+      return [];
+    }
+  }
+
+  async function generateBotMessage(
+    botSettings: BotSettings, 
+    targetNpub?: string, 
+    content?: string, 
+    context?: { pubkey: string; content: string }[],
+    isOriginalPost = false,
+    topic = ''
+  ): Promise<string> {
+    if (!botSettings.useAI || aiStatus !== 'ready' || !aiWorkerRef.current) {
+      if (!isOriginalPost && !content) {
+        addLog('AI Brain is not ready. Skipping reply.', 'warning');
+      }
       return '';
     }
 
     try {
-      const history = conversationHistoryRef.current.get(targetNpub || 'default') || [];
+      const historyKey = targetNpub || 'default';
+      const history = conversationHistoryRef.current.get(historyKey) || [];
       const userPersona = botSettings.aiSystemPrompt
         .replace(/{name}/gi, botSettings.profile.name)
         .replace(/{target_name}/gi, botSettings.targetName || 'darling');
@@ -623,17 +718,23 @@ export default function App() {
       const hiddenRules = MODEL_HIDDEN_RULES[botSettings.modelId] || "";
       const fullSystemPrompt = `${hiddenRules}\n\n${userPersona}`;
 
-      // Format thread context for the AI
-      const threadContext = (context || []).map(msg => ({
+      // Format thread context for the AI (Limit to top 5 for memory safety)
+      const threadContext = (context || []).slice(0, 5).map(msg => ({
         role: 'user',
         content: `[Context from ${msg.pubkey.substring(0, 8)}]: ${msg.content}`
       }));
+
+      const userMessage = isOriginalPost 
+        ? (topic || botSettings.proactive.aiPostPrompt)
+        : (content || '');
+
+      if (!userMessage && !isOriginalPost) return '';
 
       const rawMessages = [
         { role: 'system', content: fullSystemPrompt },
         ...threadContext,
         ...history,
-        { role: 'user', content }
+        { role: 'user', content: userMessage }
       ];
       const messages = sanitizeConversationHistory(rawMessages);
 
@@ -678,10 +779,10 @@ export default function App() {
 
         const newHistory = [
           ...history,
-          { role: 'user', content },
+          { role: 'user', content: userMessage },
           { role: 'assistant', content: messageText }
         ].slice(-10);
-        conversationHistoryRef.current.set(targetNpub || 'default', newHistory);
+        conversationHistoryRef.current.set(historyKey, newHistory);
         
         return messageText;
       }
@@ -848,13 +949,31 @@ export default function App() {
           // Pre-calculate npub if missing
           if (!updated.npub) {
             try {
-              const { data } = nip19.decode(updated.nsec);
-              updated.npub = nip19.npubEncode(getPublicKey(data as any));
+              const decoded = nip19.decode(updated.nsec) as any;
+              updated.npub = nip19.npubEncode(getPublicKey(decoded.data));
               needsMigration = true;
             } catch (e) {
               console.error('Failed to migrate npub for identity:', updated.id, e);
             }
           }
+
+          // Migrate proactive settings (v0.2.1)
+          const currentProactive = (updated.settings.proactive || {}) as any;
+          if (
+            !updated.settings.proactive || 
+            currentProactive.enabled === undefined
+          ) {
+            updated.settings.proactive = {
+              enabled: currentProactive.enabled ?? false,
+              interval: currentProactive.interval ?? 240,
+              inspiration: currentProactive.inspiration ?? 'target',
+              replyToMentions: currentProactive.replyToMentions ?? true,
+              replyProbability: currentProactive.replyProbability ?? 0.5,
+              aiPostPrompt: currentProactive.aiPostPrompt ?? 'Write a short, engaging status update about your current thoughts. Be concise and stay in character.'
+            };
+            needsMigration = true;
+          }
+
           return updated;
         });
 
@@ -1980,22 +2099,26 @@ export default function App() {
     await publishRelayList(sk, extraRelays);
   };
   const startBot = async (identity: Identity) => {
-    if (!identity.settings.targetNpub) {
+    const isProactiveOnly = !identity.settings.targetNpub && identity.settings.proactive?.enabled;
+    
+    if (!identity.settings.targetNpub && !isProactiveOnly) {
       addLog(`Please enter a target npub for ${identity.name}.`, 'error');
       return;
     }
 
     let targetHex = '';
-    try {
-      const decoded = nip19.decode(identity.settings.targetNpub) as any;
-      if (decoded.type === 'npub') {
-        targetHex = decoded.data;
-      } else {
-        throw new Error('Not an npub');
+    if (identity.settings.targetNpub) {
+      try {
+        const decoded = nip19.decode(identity.settings.targetNpub) as any;
+        if (decoded.type === 'npub') {
+          targetHex = decoded.data;
+        } else {
+          throw new Error('Not an npub');
+        }
+      } catch (e) {
+        addLog(`Invalid target npub for ${identity.name}.`, 'error');
+        return;
       }
-    } catch (e) {
-      addLog(`Invalid target npub for ${identity.name}.`, 'error');
-      return;
     }
 
     const { data: sk } = nip19.decode(identity.nsec);
@@ -2003,63 +2126,65 @@ export default function App() {
 
     setRunningIdentityIds(prev => new Set(prev).add(identity.id));
     setSessionStats(prev => ({ ...prev, [identity.id]: { replies: 0, reactions: 0, reposts: 0 } }));
-    addLog(`Starting bot: ${identity.name}`, 'info');
+    addLog(`Starting bot: ${identity.name}${isProactiveOnly ? ' (Proactive Only)' : ''}`, 'info');
 
     if (!poolRef.current) {
       poolRef.current = new SimplePool();
     }
 
     // 1. Discover target's outbox relays (NIP-65 or Profile)
-    addLog(`Discovering relays for ${identity.name}...`, 'info');
-    let targetRelays = (identity.settings as any).relays?.length > 0 ? (identity.settings as any).relays : [...PUBLISH_RELAYS];
+    let targetRelays = identity.settings.relays?.length ? identity.settings.relays : [...PUBLISH_RELAYS];
 
-    try {
-      const profileEvent = await poolRef.current.get(SEARCH_RELAYS, {
-        kinds: [0],
-        authors: [targetHex]
-      });
+    if (targetHex) {
+      addLog(`Discovering relays for ${identity.name}...`, 'info');
+      try {
+        const profileEvent = await poolRef.current.get(SEARCH_RELAYS, {
+          kinds: [0],
+          authors: [targetHex]
+        });
 
-      if (profileEvent) {
-        try {
-          const content = JSON.parse(profileEvent.content);
-          // Cache the profile for UI visibility
-          setCommunityProfiles(prev => ({
-            ...prev,
-            [targetHex]: {
-              name: content.name || content.display_name || '',
-              about: content.about || '',
-              picture: content.picture || '',
-              nip05: content.nip05 || ''
+        if (profileEvent) {
+          try {
+            const content = JSON.parse(profileEvent.content);
+            // Cache the profile for UI visibility
+            setCommunityProfiles(prev => ({
+              ...prev,
+              [targetHex]: {
+                name: content.name || content.display_name || '',
+                about: content.about || '',
+                picture: content.picture || '',
+                nip05: content.nip05 || ''
+              }
+            }));
+
+            if (content.relays && typeof content.relays === 'object') {
+              const profileRelays = Object.keys(content.relays);
+              if (profileRelays.length > 0) {
+                targetRelays = [...new Set([...profileRelays, ...PUBLISH_RELAYS])];
+                addLog(`Found ${profileRelays.length} relays for ${identity.name} via profile.`, 'success');
+              }
             }
-          }));
-
-          if (content.relays && typeof content.relays === 'object') {
-            const profileRelays = Object.keys(content.relays);
-            if (profileRelays.length > 0) {
-              targetRelays = [...new Set([...profileRelays, ...PUBLISH_RELAYS])];
-              addLog(`Found ${profileRelays.length} relays for ${identity.name} via profile.`, 'success');
-            }
-          }
-        } catch (e) {}
-      }
-
-      // Check NIP-65 too for most accurate relay list
-      const nip65Event = await poolRef.current.get(SEARCH_RELAYS, {
-        kinds: [10002],
-        authors: [targetHex]
-      });
-
-      if (nip65Event) {
-        const relays = nip65Event.tags
-          .filter(t => t[0] === 'r')
-          .map(t => t[1]);
-        if (relays.length > 0) {
-          targetRelays = [...new Set([...relays, ...targetRelays])];
-          addLog(`Updated relays for ${identity.name} via NIP-65.`, 'success');
+          } catch (e) {}
         }
+
+        // Check NIP-65 too for most accurate relay list
+        const nip65Event = await poolRef.current.get(SEARCH_RELAYS, {
+          kinds: [10002],
+          authors: [targetHex]
+        });
+
+        if (nip65Event) {
+          const relays = nip65Event.tags
+            .filter(t => t[0] === 'r')
+            .map(t => t[1]);
+          if (relays.length > 0) {
+            targetRelays = [...new Set([...relays, ...targetRelays])];
+            addLog(`Updated relays for ${identity.name} via NIP-65.`, 'success');
+          }
+        }
+      } catch (e) {
+        addLog(`Profile/Relay discovery failed for ${identity.name}, using defaults.`, 'warning');
       }
-    } catch (e) {
-      addLog(`Profile/Relay discovery failed for ${identity.name}, using defaults.`, 'warning');
     }
 
     // 2. Helper functions for processing events
@@ -2273,8 +2398,24 @@ export default function App() {
       if (event.kind === 7) return;
 
       if (mentionsSelf && event.pubkey !== targetHex) {
-        scheduleReply(event, targetRelays);
-        scheduleReactions(event, targetRelays);
+        // Only reply to mentions if enabled
+        if (identity.settings.proactive?.replyToMentions) {
+          // Bot-to-bot protection: check if sender is another one of our bots
+          const isAnotherBot = savedIdentities.some(id => {
+            try {
+              const { data } = nip19.decode(id.nsec);
+              return getPublicKey(data as any) === event.pubkey;
+            } catch (e) { return false; }
+          });
+          if (isAnotherBot) return;
+
+          // Probability check
+          const prob = identity.settings.proactive?.replyProbability ?? 0.5;
+          if (Math.random() < prob) {
+            scheduleReply(event, targetRelays);
+            scheduleReactions(event, targetRelays);
+          }
+        }
       } else if (event.pubkey === targetHex) {
         addLog(`[${identity.name}] New note from target: ${event.id.substring(0, 8)}...`, 'success', event.pubkey);
         scheduleReply(event, targetRelays);
@@ -2285,13 +2426,16 @@ export default function App() {
 
     const now = Math.floor(Date.now() / 1000);
     
-    // Subscribe to target notes
-    const subTarget = poolRef.current.subscribeMany(targetRelays, 
-      {
-        kinds: [1],
-        authors: [targetHex],
-        since: now
-      }, { onevent: eventHandler });
+    // Subscribe to target notes (only if target exists)
+    let subTarget: any = null;
+    if (targetHex) {
+      subTarget = poolRef.current.subscribeMany(targetRelays, 
+        {
+          kinds: [1],
+          authors: [targetHex],
+          since: now
+        }, { onevent: eventHandler });
+    }
 
     // Subscribe to mentions
     const mentionRelays = [...new Set([...targetRelays, ...PUBLISH_RELAYS])];
@@ -2303,9 +2447,93 @@ export default function App() {
       }, { onevent: eventHandler });
 
     const currentSubs = subscriptionsRef.current.get(identity.id) || [];
-    subscriptionsRef.current.set(identity.id, [...currentSubs, subTarget, subMentions]);
+    const newSubs = [subMentions];
+    if (subTarget) newSubs.push(subTarget);
+    subscriptionsRef.current.set(identity.id, [...currentSubs, ...newSubs]);
     addLog(`[${identity.name}] Real-time monitoring active.`, 'info');
   };
+
+  const scheduleProactivePost = async (id: string) => {
+    const identity = savedIdentities.find(i => i.id === id);
+    if (!identity || !identity.settings.proactive?.enabled) return;
+
+    addTaskToQueue({
+      id: `proactive-post-${id}-${Date.now()}`,
+      description: `[${identity.name}] AI Note`,
+      execute: async () => {
+        // AI Mode
+        const inspiration = await getInspirationNotes(identity, 15);
+        const content = await generateBotMessage(identity.settings, 'original-post', undefined, inspiration, true);
+
+        if (!content) return;
+
+        try {
+          const { data: sk } = nip19.decode(identity.nsec);
+          const postEvent = finalizeEvent({
+            kind: 1,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [],
+            content,
+          }, sk as any);
+
+          if (!poolRef.current) poolRef.current = new SimplePool();
+          const relays = identity.settings.relays?.length ? identity.settings.relays : [...PUBLISH_RELAYS];
+          const pubs = poolRef.current.publish(relays, postEvent);
+          await Promise.allSettled(pubs);
+
+          addLog(`[${identity.name}] Posted original note: "${content.substring(0, 30)}..."`, 'success');
+          
+          // Calculate next fuzzy post time (interval ± 15% jitter)
+          const baseMins = identity.settings.proactive.interval;
+          const jitterPercent = 0.15;
+          const jitterRange = baseMins * jitterPercent;
+          const fuzzyMins = baseMins + (Math.random() * jitterRange * 2 - jitterRange);
+          const nextTimestamp = Date.now() + (fuzzyMins * 60 * 1000);
+
+          // Update last post time and next scheduled time
+          setSavedIdentities(prev => prev.map(i => 
+            i.id === id ? { ...i, lastProactivePost: Date.now(), nextProactiveTimestamp: nextTimestamp } : i
+          ));
+        } catch (e) {
+          addLog(`[${identity.name}] Failed to post original note.`, 'error');
+        }
+      }
+    });
+  };
+
+  // Heartbeat for proactive posting
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+
+      runningIdentityIds.forEach(id => {
+        const identity = savedIdentities.find(i => i.id === id);
+        if (!identity || !identity.settings.proactive?.enabled) return;
+
+        const settings = identity.settings.proactive;
+
+        // 1. Initialize next post time if missing (starts from createdAt or lastPost)
+        if (settings.interval > 0 && !identity.nextProactiveTimestamp) {
+          const lastPost = identity.lastProactivePost || identity.createdAt;
+          // Initial fuzzy start to prevent all bots posting together on launch
+          const initialJitter = (settings.interval * 0.5) * Math.random();
+          const firstNext = lastPost + ((settings.interval + initialJitter) * 60 * 1000);
+          
+          setSavedIdentities(prev => prev.map(i => 
+            i.id === id ? { ...i, nextProactiveTimestamp: firstNext } : i
+          ));
+          return;
+        }
+
+        // 2. Interval Check against fuzzy timestamp
+        if (settings.interval > 0 && identity.nextProactiveTimestamp && now >= identity.nextProactiveTimestamp) {
+          scheduleProactivePost(id);
+        }
+      });
+    }, 60000); // Check every minute
+
+    return () => clearInterval(interval);
+  }, [runningIdentityIds, savedIdentities]);
   // --- Render Helpers ---
 
   return (
@@ -2395,7 +2623,7 @@ export default function App() {
                     const targetPubkey = (() => {
                       try {
                         const decoded = nip19.decode(bot.settings.targetNpub) as any;
-                        return decoded.data as string;
+                        return decoded.type === 'npub' ? (decoded.data as string) : '';
                       } catch (e) { return ''; }
                     })();
                     const targetProfile = targetPubkey ? communityProfiles[targetPubkey] : null;
@@ -2411,19 +2639,31 @@ export default function App() {
                               crossOrigin="anonymous"
                             />
                             <div className="absolute -bottom-1 -right-1">
-                              <img 
-                                src={targetProfile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${targetPubkey || bot.settings.targetNpub}`} 
-                                alt="" 
-                                className="w-4 h-4 rounded-full bg-zinc-900 border border-black object-cover shadow-lg"
-                                crossOrigin="anonymous"
-                              />
+                              {targetPubkey ? (
+                                <img 
+                                  src={targetProfile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${targetPubkey}`} 
+                                  alt="" 
+                                  className="w-4 h-4 rounded-full bg-zinc-900 border border-black object-cover shadow-lg"
+                                  crossOrigin="anonymous"
+                                />
+                              ) : (
+                                <div className="w-4 h-4 rounded-full bg-zinc-900 border border-black flex items-center justify-center shadow-lg">
+                                  <Activity className="w-2.5 h-2.5 text-emerald-500" />
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div className="min-w-0">
                             <p className="text-sm font-bold text-white truncate leading-tight">{bot.name}</p>
                             <p className="text-[10px] text-zinc-500 truncate font-bold flex items-center gap-1 leading-tight">
-                              <span className="opacity-50 uppercase text-[8px] tracking-tighter">vs</span>
-                              <span className="text-emerald-500/80">{bot.settings.targetName || targetProfile?.name || bot.settings.targetNpub.substring(0, 8)}</span>
+                              {targetPubkey ? (
+                                <>
+                                  <span className="opacity-50 uppercase text-[8px] tracking-tighter">vs</span>
+                                  <span className="text-emerald-500/80">{bot.settings.targetName || targetProfile?.name || bot.settings.targetNpub.substring(0, 8)}</span>
+                                </>
+                              ) : (
+                                <span className="text-emerald-500/60 uppercase text-[8px] tracking-widest">Self-Directed</span>
+                              )}
                             </p>
                           </div>
                         </div>
@@ -2672,14 +2912,13 @@ export default function App() {
                     startBot(identity);
                   }
                 }}
-                disabled={(settings.useAI && aiStatus !== 'ready') || !activeIdentityId}
+                disabled={((settings.useAI && aiStatus !== 'ready') || !activeIdentityId) || (!settings.targetNpub && !settings.proactive?.enabled)}
                 className={cn(
                   "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all font-bold shadow-lg",
-                  (settings.useAI && aiStatus !== 'ready') || !activeIdentityId
+                  ((settings.useAI && aiStatus !== 'ready') || !activeIdentityId) || (!settings.targetNpub && !settings.proactive?.enabled)
                     ? "bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700 shadow-none"
                     : "bg-emerald-500 text-black hover:bg-emerald-400 shadow-emerald-500/20"
-                )}
-              >
+                )}              >
                 {settings.useAI && aiStatus !== 'ready' ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
@@ -2812,25 +3051,32 @@ export default function App() {
               ) : (
                 <div className="flex-1 flex flex-col overflow-hidden">
                   <div className="flex gap-1 p-2 bg-black/20 border-b border-zinc-800/30">
-                    {[
-                      { id: 'profile', label: 'Profile', icon: User },
-                      { id: 'prompt', label: 'System Prompt', icon: MessageSquare },
-                      { id: 'tuning', label: 'Tuning', icon: SettingsIcon },
-                      { id: 'behavior', label: 'Behavior', icon: Wand2 }
-                    ].map(tab => (                      <button
-                        key={tab.id}
-                        onClick={() => setPersonaSubTab(tab.id as any)}
-                        className={cn(
-                          "flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
-                          personaSubTab === tab.id 
-                            ? "bg-zinc-800 text-emerald-400 shadow-inner" 
-                            : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
-                        )}
-                      >
-                        <tab.icon className="w-3 h-3" />
-                        {tab.label}
-                      </button>
-                    ))}
+                    {(() => {
+                      const tabs = [
+                        { id: 'profile', label: 'Profile', icon: User },
+                        { id: 'prompt', label: 'System Prompt', icon: MessageSquare },
+                        { id: 'tuning', label: 'Tuning', icon: SettingsIcon },
+                        { id: 'behavior', label: 'Behavior', icon: Wand2 }
+                      ];
+                      if (settings.proactive?.enabled) {
+                        tabs.push({ id: 'proactive', label: 'Posting', icon: PenTool });
+                      }
+                      return tabs.map(tab => (
+                        <button
+                          key={tab.id}
+                          onClick={() => setPersonaSubTab(tab.id as any)}
+                          className={cn(
+                            "flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
+                            personaSubTab === tab.id 
+                              ? "bg-zinc-800 text-emerald-400 shadow-inner" 
+                              : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                          )}
+                        >
+                          <tab.icon className="w-3 h-3" />
+                          {tab.label}
+                        </button>
+                      ));
+                    })()}
                   </div>
 
                   <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
@@ -3083,8 +3329,26 @@ export default function App() {
                               </div>
                             )}
 
-                            {/* Repost Toggle */}
-                            <label className="flex items-center justify-between p-4 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
+                            {/* Proactive Posting Master Toggle */}
+                            <div className="p-4 bg-zinc-900/30 border border-zinc-800/50 rounded-2xl">
+                              <div className="flex items-center justify-between">
+                                <div className="space-y-1">
+                                  <div className="text-base font-bold text-white uppercase tracking-wider">Proactive Posting</div>
+                                  <div className="text-xs text-zinc-500">Enable original notes and autonomous interaction.</div>
+                                </div>
+                                <div className={cn(
+                                  "w-10 h-5 rounded-full transition-all relative cursor-pointer",
+                                  settings.proactive?.enabled ? "bg-emerald-500" : "bg-zinc-800"
+                                )} onClick={() => setSettings(s => ({ ...s, proactive: { ...s.proactive, enabled: !s.proactive?.enabled } }))}>
+                                  <div className={cn(
+                                    "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
+                                    settings.proactive?.enabled ? "left-6" : "left-1"
+                                  )} />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Repost Toggle */}                            <label className="flex items-center justify-between p-4 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
                               <div className="space-y-1">
                                 <div className="text-base font-bold text-white uppercase tracking-wider">Enable Reposting</div>
                                 <div className="text-xs text-zinc-500 text-balance">The bot will occasionally repost the target's new notes to its own timeline.</div>
@@ -3146,6 +3410,121 @@ export default function App() {
                                 )} />
                               </div>
                             </label>
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {personaSubTab === 'proactive' && (
+                        <motion.div
+                          key="proactive"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          className="space-y-6"
+                        >
+                          <div className="space-y-6">
+                            {/* Timing Controls */}
+                            <div className="p-4 bg-black/40 border border-zinc-800 rounded-2xl space-y-4">
+                              <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-2">
+                                  <Clock className="w-4 h-4 text-emerald-500" />
+                                  <span className="text-xs font-bold text-zinc-300 uppercase tracking-widest">Post Frequency</span>
+                                </div>
+                                <span className="text-sm font-mono font-bold text-emerald-500">
+                                  Every {(() => {
+                                    const mins = settings.proactive?.interval || 240;
+                                    const h = Math.floor(mins / 60);
+                                    const m = mins % 60;
+                                    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                                  })()}
+                                </span>
+                              </div>
+                              <input
+                                type="range"
+                                min="15"
+                                max="1440"
+                                step="15"
+                                value={settings.proactive?.interval || 240}
+                                onChange={(e) => setSettings(s => ({ ...s, proactive: { ...s.proactive, interval: parseInt(e.target.value) } }))}
+                                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                              />
+                              <div className="flex justify-between text-[10px] font-bold text-zinc-600 uppercase tracking-tighter">
+                                <span>15m</span>
+                                <span>6h</span>
+                                <span>12h</span>
+                                <span>24h</span>
+                              </div>
+                            </div>
+
+                            {/* Inspiration Source */}
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Inspiration Source</label>
+                                <p className="text-[10px] text-zinc-600 italic">The bot will read recent notes from these sources for AI context.</p>
+                                <div className="flex gap-2">
+                                  {(['target', 'follows', 'both'] as const).map((source) => (
+                                    <button
+                                      key={source}
+                                      onClick={() => setSettings(s => ({ ...s, proactive: { ...s.proactive, inspiration: source } }))}
+                                      className={cn(
+                                        "flex-1 py-2 rounded-xl text-[10px] font-bold uppercase border transition-all",
+                                        settings.proactive?.inspiration === source 
+                                          ? "bg-zinc-100 text-black border-zinc-100 shadow-lg" 
+                                          : "bg-black text-zinc-600 border-zinc-800 hover:border-zinc-700"
+                                      )}
+                                    >
+                                      {source}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div className="space-y-2">
+                                <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">AI Post Prompt</label>
+                                <textarea
+                                  value={settings.proactive?.aiPostPrompt}
+                                  onChange={(e) => setSettings(s => ({ ...s, proactive: { ...s.proactive, aiPostPrompt: e.target.value } }))}
+                                  className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors h-24 resize-none leading-relaxed text-zinc-400"
+                                  placeholder="Instructions for original posts..."
+                                />
+                              </div>
+                            </div>
+
+                            {/* Interaction Settings */}
+                            <div className="p-4 bg-zinc-900/30 border border-zinc-800/50 rounded-2xl space-y-4">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <Users className="w-4 h-4 text-emerald-500" />
+                                  <span className="text-xs font-bold text-zinc-300 uppercase tracking-widest">Reply to Mentions</span>
+                                </div>
+                                <div className={cn(
+                                  "w-10 h-5 rounded-full transition-all relative cursor-pointer",
+                                  settings.proactive?.replyToMentions ? "bg-emerald-500" : "bg-zinc-800"
+                                )} onClick={() => setSettings(s => ({ ...s, proactive: { ...s.proactive, replyToMentions: !s.proactive?.replyToMentions } }))}>
+                                  <div className={cn(
+                                    "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
+                                    settings.proactive?.replyToMentions ? "left-6" : "left-1"
+                                  )} />
+                                </div>
+                              </div>
+                              {settings.proactive?.replyToMentions && (
+                                <div className="space-y-3 pt-2 border-t border-zinc-800/20">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Reply Probability</span>
+                                    <span className="text-xs font-mono font-bold text-emerald-500">{Math.round((settings.proactive?.replyProbability || 0.5) * 100)}%</span>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    min="0"
+                                    max="1"
+                                    step="0.05"
+                                    value={settings.proactive?.replyProbability || 0.5}
+                                    onChange={(e) => setSettings(s => ({ ...s, proactive: { ...s.proactive, replyProbability: parseFloat(e.target.value) } }))}
+                                    className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                                  />
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </motion.div>
                       )}
@@ -3357,15 +3736,17 @@ export default function App() {
                                   >
                                     <SettingsIcon className="w-4 h-4" />
                                   </button>
-                                  <button 
+                                  <button
                                     onClick={() => isRunning(identity.id) ? stopBot(identity.id) : startBot(identity)}
+                                    disabled={!identity.settings.targetNpub && !identity.settings.proactive?.enabled}
                                     className={cn(
                                       "p-2 rounded-xl transition-all shadow-lg",
                                       isRunning(identity.id)
                                         ? "bg-red-500 text-white hover:bg-red-600"
-                                        : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black"
-                                    )}
-                                    title={isRunning(identity.id) ? "Stop Bot" : "Start Bot"}
+                                        : (!identity.settings.targetNpub && !identity.settings.proactive?.enabled)
+                                          ? "bg-zinc-800 text-zinc-600 cursor-not-allowed"
+                                          : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black"
+                                    )}                                    title={isRunning(identity.id) ? "Stop Bot" : "Start Bot"}
                                   >
                                     {isRunning(identity.id) ? <Square className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
                                   </button>
@@ -3435,24 +3816,35 @@ export default function App() {
                                   <div className="flex items-center gap-2 min-w-0">
                                     {(() => {
                                       const targetPk = (() => {
-                                        try { return nip19.decode(identity.settings.targetNpub).data as string; } catch (e) { return ''; }
+                                        try { 
+                                          const decoded = nip19.decode(identity.settings.targetNpub) as any;
+                                          return decoded.type === 'npub' ? (decoded.data as string) : '';
+                                        } catch (e) { return ''; }
                                       })();
                                       const profile = targetPk ? communityProfiles[targetPk] : null;
                                       return (
                                         <>
-                                          <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter shrink-0">Target:</span>
-                                          <img 
-                                            src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${targetPk || identity.settings.targetNpub}`} 
-                                            className="w-5 h-5 rounded-full object-cover border border-zinc-700 shrink-0 shadow-md" 
-                                            alt=""
-                                            crossOrigin="anonymous"
-                                          />
-                                          <span className="text-[11px] font-bold text-zinc-300 truncate tracking-tight">
-                                            {identity.settings.targetName || profile?.name || identity.settings.targetNpub.substring(0, 8)}
-                                          </span>
+                                          {targetPk ? (
+                                            <>
+                                              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter shrink-0">Target:</span>
+                                              <img 
+                                                src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${targetPk}`} 
+                                                className="w-5 h-5 rounded-full object-cover border border-zinc-700 shrink-0 shadow-md" 
+                                                alt=""
+                                                crossOrigin="anonymous"
+                                              />
+                                              <span className="text-[11px] font-bold text-zinc-300 truncate tracking-tight">
+                                                {identity.settings.targetName || profile?.name || identity.settings.targetNpub.substring(0, 8)}
+                                              </span>
+                                            </>
+                                          ) : (
+                                            <div className="flex items-center gap-1.5 opacity-50">
+                                              <Activity className="w-3 h-3 text-emerald-500" />
+                                              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500">Self-Directed</span>
+                                            </div>
+                                          )}
                                         </>
-                                      );
-                                    })()}
+                                      );                                    })()}
                                   </div>
                                 </div>
                               )}
