@@ -89,6 +89,7 @@ interface ProfileInfo {
 interface BotStats {
   repliesSent: Record<string, number>;
   reactionsSent: Record<string, number>;
+  repostsSent: Record<string, number>;
   repliesReceived: Record<string, number>;
   reactionsReceived: Record<string, number>;
 }
@@ -474,6 +475,7 @@ const STORAGE_KEY_LAST_SYNC = 'echobot_last_sync';
 export default function App() {
   // State
   const [runningIdentityIds, setRunningIdentityIds] = useState<Set<string>>(new Set());
+  const [sessionStats, setSessionStats] = useState<Record<string, { replies: number, reactions: number, reposts: number }>>({});
   const isRunning = (id: string) => runningIdentityIds.has(id);
   const isAnyBotRunning = runningIdentityIds.size > 0;
   const [userPubkey, setUserPubkey] = useState<string | null>(null);
@@ -830,9 +832,15 @@ export default function App() {
             updated.stats = {
               repliesSent: { [deviceId]: legacy.repliesSent || 0 },
               reactionsSent: { [deviceId]: legacy.reactionsSent || 0 },
+              repostsSent: { [deviceId]: legacy.repostsSent || 0 },
               repliesReceived: { [deviceId]: legacy.repliesReceived || 0 },
               reactionsReceived: { [deviceId]: legacy.reactionsReceived || 0 },
             };
+            needsMigration = true;
+          }
+          // Ensure repostsSent exists in existing device-mapped stats
+          if (updated.stats && !updated.stats.repostsSent) {
+            updated.stats.repostsSent = {};
             needsMigration = true;
           }
           // Pre-calculate npub if missing
@@ -1150,6 +1158,7 @@ export default function App() {
             const mergedStats: BotStats = {
               repliesSent: { ...(cloud.stats?.repliesSent || {}), ...(local.stats?.repliesSent || {}) },
               reactionsSent: { ...(cloud.stats?.reactionsSent || {}), ...(local.stats?.reactionsSent || {}) },
+              repostsSent: { ...(cloud.stats?.repostsSent || {}), ...(local.stats?.repostsSent || {}) },
               repliesReceived: { ...(cloud.stats?.repliesReceived || {}), ...(local.stats?.repliesReceived || {}) },
               reactionsReceived: { ...(cloud.stats?.reactionsReceived || {}), ...(local.stats?.reactionsReceived || {}) },
             };
@@ -1162,6 +1171,7 @@ export default function App() {
           const mergedStats: BotStats = {
             repliesSent: { ...(local.stats?.repliesSent || {}), ...(cloud.stats?.repliesSent || {}) },
             reactionsSent: { ...(local.stats?.reactionsSent || {}), ...(cloud.stats?.reactionsSent || {}) },
+            repostsSent: { ...(local.stats?.repostsSent || {}), ...(cloud.stats?.repostsSent || {}) },
             repliesReceived: { ...(local.stats?.repliesReceived || {}), ...(cloud.stats?.repliesReceived || {}) },
             reactionsReceived: { ...(local.stats?.reactionsReceived || {}), ...(cloud.stats?.reactionsReceived || {}) },
           };
@@ -1571,6 +1581,7 @@ export default function App() {
   const INITIAL_STATS: BotStats = {
     repliesSent: {},
     reactionsSent: {},
+    repostsSent: {},
     repliesReceived: {},
     reactionsReceived: {}
   };
@@ -1581,11 +1592,12 @@ export default function App() {
   }, []);
 
   const updateIdentityStats = useCallback((id: string, update: Partial<Record<keyof BotStats, number>>) => {
+    // 1. Update All-Time Stats
     setSavedIdentities(prev => prev.map(identity => {
       if (identity.id === id) {
         const stats = identity.stats || { ...INITIAL_STATS };
         const newStats = { ...stats };
-        
+
         Object.entries(update).forEach(([key, value]) => {
           const k = key as keyof BotStats;
           const currentMap = { ...(newStats[k] || {}) };
@@ -1601,8 +1613,20 @@ export default function App() {
       }
       return identity;
     }));
-  }, [deviceId]);
 
+    // 2. Update Session Stats
+    setSessionStats(prev => {
+      const current = prev[id] || { replies: 0, reactions: 0, reposts: 0 };
+      return {
+        ...prev,
+        [id]: {
+          replies: current.replies + (update.repliesSent || 0),
+          reactions: current.reactions + (update.reactionsSent || 0),
+          reposts: current.reposts + (update.repostsSent || 0)
+        }
+      };
+    });
+  }, [deviceId, INITIAL_STATS]);
   const saveIdentity = async (name: string) => {
     if (!currentIdentity) return;
     const nsec = nip19.nsecEncode(currentIdentity.sk);
@@ -1772,6 +1796,11 @@ export default function App() {
         next.delete(id);
         return next;
       });
+      setSessionStats(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       const subs = subscriptionsRef.current.get(id);
       if (subs) {
         subs.forEach(sub => sub.close());
@@ -1781,6 +1810,7 @@ export default function App() {
     } else {
       // Stop all
       setRunningIdentityIds(new Set());
+      setSessionStats({});
       isProcessingQueueRef.current = false;
       taskQueueRef.current = [];
       subscriptionsRef.current.forEach(subs => subs.forEach(sub => sub.close()));
@@ -1881,6 +1911,7 @@ export default function App() {
     const pk = getPublicKey(sk as any);
 
     setRunningIdentityIds(prev => new Set(prev).add(identity.id));
+    setSessionStats(prev => ({ ...prev, [identity.id]: { replies: 0, reactions: 0, reposts: 0 } }));
     addLog(`Starting bot: ${identity.name}`, 'info');
 
     if (!poolRef.current) {
@@ -2061,8 +2092,11 @@ export default function App() {
           try {
             const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
             const pubs = poolRef.current.publish(allRelays, repostEvent);
-            await Promise.allSettled(pubs);
-            addLog(`[${identity.name}] Reposted note.`, 'success');
+            const results = await Promise.allSettled(pubs);
+            if (results.some(r => r.status === 'fulfilled')) {
+              addLog(`[${identity.name}] Reposted note.`, 'success');
+              updateIdentityStats(identity.id, { repostsSent: 1 });
+            }
           } catch (e) {}
         }
       });
@@ -2227,6 +2261,71 @@ export default function App() {
       <main className="max-w-5xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left Column: Controls */}
         <div className="lg:col-span-5 space-y-6">
+          {/* Background Swarm Status */}
+          <AnimatePresence>
+            {isAnyBotRunning && (
+              <motion.section 
+                initial={{ opacity: 0, height: 0, y: 20 }}
+                animate={{ opacity: 1, height: 'auto', y: 0 }}
+                exit={{ opacity: 0, height: 0, y: 20 }}
+                className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 space-y-4 overflow-hidden"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-emerald-500" />
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-emerald-500/80">Swarm Status</h2>
+                  </div>
+                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-tighter rounded-full border border-emerald-500/30 animate-pulse">
+                    {runningIdentityIds.size} Active
+                  </span>
+                </div>
+
+                <div className="space-y-2.5">
+                  {savedIdentities.filter(id => isRunning(id.id)).map(bot => (
+                    <div key={bot.id} className="p-3 bg-black/40 border border-emerald-500/10 rounded-xl space-y-2 group/bot">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <img 
+                            src={bot.settings.profile.picture} 
+                            alt="" 
+                            className="w-6 h-6 rounded-lg bg-zinc-800 border border-zinc-700/50"
+                            crossOrigin="anonymous"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-white truncate">{bot.name}</p>
+                            <p className="text-[8px] text-zinc-500 truncate font-mono">{"->"} {bot.settings.targetName || bot.settings.targetNpub.substring(0, 8)}</p>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => stopBot(bot.id)}
+                          className="p-1.5 hover:bg-red-500/20 text-zinc-600 hover:text-red-400 transition-all rounded-lg opacity-0 group-hover/bot:opacity-100"
+                          title="Stop this bot"
+                        >
+                          <Square className="w-3 h-3 fill-current" />
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-1 pt-1 border-t border-zinc-800/50">
+                        <div className="flex flex-col items-center py-1">
+                          <span className="text-[7px] font-black uppercase text-zinc-600 tracking-tighter">Replies</span>
+                          <span className="text-[10px] font-mono font-bold text-emerald-500/80">{sessionStats[bot.id]?.replies || 0}</span>
+                        </div>
+                        <div className="flex flex-col items-center py-1 border-x border-zinc-800/50">
+                          <span className="text-[7px] font-black uppercase text-zinc-600 tracking-tighter">Reacts</span>
+                          <span className="text-[10px] font-mono font-bold text-pink-500/80">{sessionStats[bot.id]?.reactions || 0}</span>
+                        </div>
+                        <div className="flex flex-col items-center py-1">
+                          <span className="text-[7px] font-black uppercase text-zinc-600 tracking-tighter">Reposts</span>
+                          <span className="text-[10px] font-mono font-bold text-purple-500/80">{sessionStats[bot.id]?.reposts || 0}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </motion.section>
+            )}
+          </AnimatePresence>
+
           {/* Identity Info */}
           <section className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-6 space-y-4 relative overflow-hidden group/card">
             <div className="flex items-center justify-between mb-2">
@@ -2463,6 +2562,7 @@ export default function App() {
               </button>
             )}
           </section>
+
         </div>
 
         {/* Right Column: Content Tabs */}
@@ -3137,6 +3237,10 @@ export default function App() {
                                       <Heart className="w-2.5 h-2.5 text-pink-500" />
                                       <span className="text-xs font-bold text-zinc-300">{sumStats(identity.stats?.reactionsSent)}</span>
                                     </div>
+                                    <div className="flex items-center gap-1" title="Reposts Sent">
+                                      <RefreshCw className="w-2.5 h-2.5 text-purple-500" />
+                                      <span className="text-xs font-bold text-zinc-300">{sumStats(identity.stats?.repostsSent)}</span>
+                                    </div>
                                   </div>
                                 </div>
                                 <div className="space-y-0.5 pl-1">
@@ -3155,16 +3259,25 @@ export default function App() {
                               </div>
 
                               {activeIdentityId === identity.id && (
-                                <div className="absolute top-0 right-0 p-1.5">
+                                <div className="absolute top-0 right-0 p-1.5 flex flex-col items-end gap-1">
                                   <span className="px-2 py-0.5 bg-emerald-500 text-black text-[8px] font-black uppercase tracking-tighter rounded-bl-lg shadow-lg">Focused</span>
+                                  {!isRunning(identity.id) && (
+                                    <span className="text-[7px] font-bold text-zinc-500 uppercase tracking-tighter bg-black/40 px-1 py-0.5 rounded-sm border border-zinc-800/50">
+                                      Target: {identity.settings.targetName || identity.settings.targetNpub.substring(0, 8)}
+                                    </span>
+                                  )}
                                 </div>
                               )}
 
                               {isRunning(identity.id) && (
-                                <div className="absolute top-0 left-0 p-1.5">
-                                  <div className="flex items-center gap-1.5 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-br-lg border-r border-b border-emerald-500/30">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-                                    <span className="text-emerald-500 text-[8px] font-black uppercase tracking-tighter">Live</span>
+                                <div className="absolute top-0 left-0 p-1.5 max-w-[70%]">
+                                  <div className="flex items-center gap-1.5 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-br-lg border-r border-b border-emerald-500/30 overflow-hidden">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)] shrink-0" />
+                                    <span className="text-emerald-500 text-[8px] font-black uppercase tracking-tighter shrink-0">Live</span>
+                                    <div className="w-[1px] h-2 bg-emerald-500/20 shrink-0 mx-0.5" />
+                                    <span className="text-[8px] font-bold text-zinc-400 truncate tracking-tight">
+                                      {identity.settings.targetName || identity.settings.targetNpub.substring(0, 10)}
+                                    </span>
                                   </div>
                                 </div>
                               )}
@@ -3202,7 +3315,7 @@ export default function App() {
                           <p className="text-sm font-medium italic">No community personas found.</p>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                           {communityPersonas.map((persona) => (
                             <div 
                               key={persona.id}
