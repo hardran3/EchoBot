@@ -126,6 +126,7 @@ interface BotSettings {
   repetition_penalty: number;
   presence_penalty: number;
   frequency_penalty: number;
+  relays?: string[];
 }
 
 const SUPPORTED_MODELS = [
@@ -472,7 +473,9 @@ const STORAGE_KEY_LAST_SYNC = 'echobot_last_sync';
 
 export default function App() {
   // State
-  const [isRunning, setIsRunning] = useState(false);
+  const [runningIdentityIds, setRunningIdentityIds] = useState<Set<string>>(new Set());
+  const isRunning = (id: string) => runningIdentityIds.has(id);
+  const isAnyBotRunning = runningIdentityIds.size > 0;
   const [userPubkey, setUserPubkey] = useState<string | null>(null);
   const [curatorProfile, setCuratorProfile] = useState<ProfileInfo | null>(null);
   const [isDiscovering, setIsDiscovering] = useState(false);
@@ -590,60 +593,9 @@ export default function App() {
     setIsPlaygroundThinking(true);
 
     try {
-      const userPersona = settings.aiSystemPrompt
-        .replace(/{name}/gi, settings.profile.name)
-        .replace(/{target_name}/gi, settings.targetName || 'darling');
-
-      const hiddenRules = MODEL_HIDDEN_RULES[settings.modelId] || "";
-      const fullSystemPrompt = `${hiddenRules}\n\n${userPersona}`;
-
-      const rawMessages = [
-        { role: 'system', content: fullSystemPrompt },
-        ...playgroundMessages,
-        { role: 'user', content: userMsg }
-      ];
-
-      const messages = sanitizeConversationHistory(rawMessages);
-
-      const aiPromise = new Promise<string>((resolve) => {
-        aiResolveRef.current = resolve;
-      });
-
-      if (aiWorkerRef.current) {
-        aiWorkerRef.current.postMessage({
-          type: 'generate',
-          data: { 
-            messages, 
-            max_new_tokens: settings.modelId.includes('270m') ? 64 : 128, 
-            temperature: settings.temperature,
-            top_p: settings.top_p,
-            top_k: settings.top_k,
-            repetition_penalty: settings.repetition_penalty,
-            presence_penalty: settings.presence_penalty,
-            frequency_penalty: settings.frequency_penalty
-          }
-        });
-
-        const aiResult = await aiPromise;
-        if (typeof aiResult === 'string' && aiResult.trim()) {
-          let cleaned = aiResult.trim();
-          
-          const namePrefix = settings.profile.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const prefixRegex = new RegExp(`^(${namePrefix}|assistant|bot|reply):`, 'i');
-          cleaned = cleaned.replace(prefixRegex, '').trim();
-          cleaned = cleaned.replace(/^[^:]+:/, '').trim(); 
-
-          // Truncate to first 3 sentences to prevent run-on
-          const sentenceEndRegex = /[.!?](\s+|$)/;
-          const sentences = cleaned.split(sentenceEndRegex).filter(s => s && s.trim().length > 1);
-          if (sentences.length > 3) {
-            cleaned = sentences.slice(0, 3).join('. ') + '.';
-          }
-          
-          if (cleaned) {
-            setPlaygroundMessages(prev => [...prev, { role: 'assistant', content: cleaned }]);
-          }
-        }
+      const aiResult = await generateBotMessage(settings, 'playground', userMsg);
+      if (aiResult) {
+        setPlaygroundMessages(prev => [...prev, { role: 'assistant', content: aiResult }]);
       }
     } catch (e) {
       addLog(`Playground Error: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error');
@@ -652,19 +604,19 @@ export default function App() {
     }
   };
 
-  async function generateBotMessage(targetNpub?: string, content?: string, context?: { pubkey: string; content: string }[]): Promise<string> {
-    if (!settings.useAI || aiStatus !== 'ready' || !aiWorkerRef.current || !content) {
+  async function generateBotMessage(botSettings: BotSettings, targetNpub?: string, content?: string, context?: { pubkey: string; content: string }[]): Promise<string> {
+    if (!botSettings.useAI || aiStatus !== 'ready' || !aiWorkerRef.current || !content) {
       addLog('AI Brain is not ready. Skipping reply.', 'warning');
       return '';
     }
 
     try {
       const history = conversationHistoryRef.current.get(targetNpub || 'default') || [];
-      const userPersona = settings.aiSystemPrompt
-        .replace(/{name}/gi, settings.profile.name)
-        .replace(/{target_name}/gi, settings.targetName || 'darling');
+      const userPersona = botSettings.aiSystemPrompt
+        .replace(/{name}/gi, botSettings.profile.name)
+        .replace(/{target_name}/gi, botSettings.targetName || 'darling');
 
-      const hiddenRules = MODEL_HIDDEN_RULES[settings.modelId] || "";
+      const hiddenRules = MODEL_HIDDEN_RULES[botSettings.modelId] || "";
       const fullSystemPrompt = `${hiddenRules}\n\n${userPersona}`;
 
       // Format thread context for the AI
@@ -689,13 +641,13 @@ export default function App() {
         type: 'generate',
         data: { 
           messages, 
-          max_new_tokens: settings.modelId.includes('270m') ? 40 : 64,
-          temperature: settings.temperature,
-          top_p: settings.top_p,
-          top_k: settings.top_k,
-          repetition_penalty: settings.repetition_penalty,
-          presence_penalty: settings.presence_penalty,
-          frequency_penalty: settings.frequency_penalty
+          max_new_tokens: botSettings.modelId.includes('270m') ? 40 : 64,
+          temperature: botSettings.temperature,
+          top_p: botSettings.top_p,
+          top_k: botSettings.top_k,
+          repetition_penalty: botSettings.repetition_penalty,
+          presence_penalty: botSettings.presence_penalty,
+          frequency_penalty: botSettings.frequency_penalty
         }
       });
 
@@ -703,7 +655,7 @@ export default function App() {
       if (typeof aiResult === 'string' && aiResult.trim()) {
         let cleaned = aiResult.trim();
         
-        const namePrefix = settings.profile.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const namePrefix = botSettings.profile.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const prefixRegex = new RegExp(`^(${namePrefix}|assistant|bot|reply):`, 'i');
         cleaned = cleaned.replace(prefixRegex, '').trim();
         cleaned = cleaned.replace(/^[^:]+:/, '').trim(); 
@@ -737,7 +689,8 @@ export default function App() {
     return '';
   }
 
-  const poolRef = useRef<SimplePool | null>(null);  const subscriptionsRef = useRef<any[]>([]);
+  const poolRef = useRef<SimplePool | null>(null);
+  const subscriptionsRef = useRef<Map<string, any[]>>(new Map());
   const timeoutRefs = useRef<NodeJS.Timeout[]>([]);
   const taskQueueRef = useRef<BotTask[]>([]);
   const isProcessingQueueRef = useRef(false);
@@ -1812,15 +1765,30 @@ export default function App() {
     }
   }, [processQueue]);
 
-  const stopBot = useCallback(() => {
-    setIsRunning(false);
-    isProcessingQueueRef.current = false;
-    taskQueueRef.current = [];
-    subscriptionsRef.current.forEach(sub => sub.close());
-    subscriptionsRef.current = [];
-    timeoutRefs.current.forEach(t => clearTimeout(t));
-    timeoutRefs.current = [];
-    addLog('Bot stopped.', 'warning');
+  const stopBot = useCallback((id?: string) => {
+    if (id) {
+      setRunningIdentityIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      const subs = subscriptionsRef.current.get(id);
+      if (subs) {
+        subs.forEach(sub => sub.close());
+        subscriptionsRef.current.delete(id);
+      }
+      addLog(`Bot stopped for identity ${id.substring(0, 8)}`, 'warning');
+    } else {
+      // Stop all
+      setRunningIdentityIds(new Set());
+      isProcessingQueueRef.current = false;
+      taskQueueRef.current = [];
+      subscriptionsRef.current.forEach(subs => subs.forEach(sub => sub.close()));
+      subscriptionsRef.current.clear();
+      timeoutRefs.current.forEach(t => clearTimeout(t));
+      timeoutRefs.current = [];
+      addLog('All bots stopped.', 'warning');
+    }
   }, [addLog]);
 
   // Cleanup on unmount
@@ -1890,37 +1858,39 @@ export default function App() {
     // Also publish Relay List (NIP-65)
     await publishRelayList(sk, extraRelays);
   };
-  const startBot = async () => {
-    if (!settings.targetNpub) {
-      addLog('Please enter a target npub.', 'error');
+  const startBot = async (identity: Identity) => {
+    if (!identity.settings.targetNpub) {
+      addLog(`Please enter a target npub for ${identity.name}.`, 'error');
       return;
     }
 
     let targetHex = '';
     try {
-      const decoded = nip19.decode(settings.targetNpub) as any;
+      const decoded = nip19.decode(identity.settings.targetNpub) as any;
       if (decoded.type === 'npub') {
         targetHex = decoded.data;
       } else {
         throw new Error('Not an npub');
       }
     } catch (e) {
-      addLog('Invalid target npub.', 'error');
+      addLog(`Invalid target npub for ${identity.name}.`, 'error');
       return;
     }
 
-    setIsRunning(true);
-    addLog(`Starting bot for target: ${settings.targetNpub}`, 'info');
-    addLog(`Target Hex: ${targetHex}`, 'info');
+    const { data: sk } = nip19.decode(identity.nsec);
+    const pk = getPublicKey(sk as any);
+
+    setRunningIdentityIds(prev => new Set(prev).add(identity.id));
+    addLog(`Starting bot: ${identity.name}`, 'info');
 
     if (!poolRef.current) {
       poolRef.current = new SimplePool();
     }
 
     // 1. Discover target's outbox relays (NIP-65 or Profile)
-    addLog('Discovering target relays...', 'info');
-    let targetRelays = [...PUBLISH_RELAYS];
-    
+    addLog(`Discovering relays for ${identity.name}...`, 'info');
+    let targetRelays = (identity.settings as any).relays?.length > 0 ? (identity.settings as any).relays : [...PUBLISH_RELAYS];
+
     try {
       const nip65Event = await poolRef.current.get(SEARCH_RELAYS, {
         kinds: [10002],
@@ -1933,7 +1903,7 @@ export default function App() {
           .map(t => t[1]);
         if (relays.length > 0) {
           targetRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
-          addLog(`Found ${relays.length} relays via NIP-65.`, 'success');
+          addLog(`Found ${relays.length} relays for ${identity.name} via NIP-65.`, 'success');
         }
       } else {
         // Fallback: Check profile for relay hints
@@ -1941,7 +1911,7 @@ export default function App() {
           kinds: [0],
           authors: [targetHex]
         });
-        
+
         if (profileEvent) {
           try {
             const content = JSON.parse(profileEvent.content);
@@ -1949,64 +1919,28 @@ export default function App() {
               const profileRelays = Object.keys(content.relays);
               if (profileRelays.length > 0) {
                 targetRelays = [...new Set([...profileRelays, ...PUBLISH_RELAYS])];
-                addLog(`Found ${profileRelays.length} relays via profile.`, 'success');
+                addLog(`Found ${profileRelays.length} relays for ${identity.name} via profile.`, 'success');
               }
             }
           } catch (e) {}
         }
       }
     } catch (e) {
-      addLog('Relay discovery failed, using defaults.', 'warning');
-    }
-
-    if (targetRelays.length === PUBLISH_RELAYS.length) {
-      addLog('No specific relays found for target, using default coverage.', 'info');
-    }
-
-    addLog(`Monitoring ${targetRelays.length} total relays.`, 'info');
-    setActiveRelays(targetRelays);
-
-    // --- NEW: Fetch our own follow list (Kind 3) ---
-    const fetchFollows = async () => {
-      if (!poolRef.current || !currentIdentity) return [];
-      try {
-        const followEvent = await poolRef.current.get(SEARCH_RELAYS, {
-          kinds: [3],
-          authors: [currentIdentity.pk]
-        });
-        if (followEvent) {
-          const follows = followEvent.tags
-            .filter(t => t[0] === 'p')
-            .map(t => t[1]);
-          setTargetFollows(follows);
-          return follows;
-        }
-      } catch (e) {
-        console.error('Failed to fetch follows:', e);
-      }
-      return [];
-    };
-
-    const follows = await fetchFollows();
-    if (follows.length > 0) {
-      addLog(`Monitoring feed from ${follows.length} followed accounts.`, 'info');
+      addLog(`Relay discovery failed for ${identity.name}, using defaults.`, 'warning');
     }
 
     // 2. Helper functions for processing events
     const scheduleReply = (event: any, relays: string[]) => {
       addTaskToQueue({
         id: `reply-${event.id}-${Math.random()}`,
-        description: `Reply to ${event.id.substring(0, 8)}`,
+        description: `[${identity.name}] Reply to ${event.id.substring(0, 8)}`,
         execute: async () => {
-          const identity = currentIdentity;
-          const profile = settings.profile;
+          if (!poolRef.current) return;
 
-          if (!identity || !poolRef.current) return;
-
-          // --- NEW: Fetch thread context ---
+          // --- Fetch thread context ---
           const eTags = event.tags.filter((t: any) => t[0] === 'e');
           const contextEvents: { pubkey: string; content: string; created_at: number }[] = [];
-          
+
           if (eTags.length > 0) {
             const parentIds = eTags.map((t: any) => t[1]);
             try {
@@ -2022,12 +1956,12 @@ export default function App() {
             } catch (e) {}
           }
 
-          const message = await generateBotMessage(settings.targetNpub, event.content, contextEvents);
+          const message = await generateBotMessage(identity.settings, identity.settings.targetNpub, event.content, contextEvents);
           if (!message) return;
-          
+
           // Improved NIP-10 tagging
           const rootTag = eTags.find((t: any) => t[3] === 'root') || eTags[0];
-          
+
           const tags: string[][] = [];
           if (rootTag && rootTag[1] !== event.id) {
             // Replying to a reply
@@ -2044,7 +1978,7 @@ export default function App() {
             created_at: Math.floor(Date.now() / 1000),
             tags,
             content: message,
-          }, identity.sk);
+          }, sk as any);
 
           try {
             const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
@@ -2053,84 +1987,67 @@ export default function App() {
             const successCount = results.filter(r => r.status === 'fulfilled').length;
 
             if (successCount > 0) {
-              addLog(`Replied: "${message.substring(0, 30)}..." (Sent to ${successCount}/${allRelays.length} relays)`, 'success');
-              if (activeIdentityId) updateIdentityStats(activeIdentityId, { repliesSent: 1 });
-            } else {
-              addLog(`Failed to publish reply to any relay.`, 'error');
+              addLog(`[${identity.name}] Replied: "${message.substring(0, 30)}..."`, 'success');
+              updateIdentityStats(identity.id, { repliesSent: 1 });
             }
           } catch (e) {
-            addLog(`Failed to broadcast reply.`, 'error');
+            addLog(`[${identity.name}] Failed to broadcast reply.`, 'error');
           }
         }
       });
     };
 
-    const scheduleReactions = (event: any, relays: string[], isComment: boolean = false) => {
-      if (!settings.reactToNotes) return;
+    const scheduleReactions = (event: any, relays: string[]) => {
+      if (!identity.settings.reactToNotes) return;
 
-      // 1. Build the reaction pool
       const allEmojis: string[] = [];
-      if (settings.reactionEmojis) {
+      if (identity.settings.reactionEmojis) {
         const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-        const customEmojis = [...segmenter.segment(settings.reactionEmojis.trim())]
+        const customEmojis = [...segmenter.segment(identity.settings.reactionEmojis.trim())]
           .map(s => s.segment)
           .filter(c => c.trim() !== '');
         allEmojis.push(...customEmojis);
       }
 
-      // If no emojis are configured, we can't react
       if (allEmojis.length === 0) return;
+      const emoji = allEmojis[Math.floor(Math.random() * allEmojis.length)];
 
-      // 2. Always pick exactly one random reaction
-      const numToPick = 1;
-      const selectedEmojis = allEmojis.sort(() => 0.5 - Math.random()).slice(0, numToPick);
+      addTaskToQueue({
+        id: `reaction-${event.id}-${emoji}-${Math.random()}`,
+        description: `[${identity.name}] Reaction "${emoji}" to ${event.id.substring(0, 8)}`,
+        execute: async () => {
+          if (!poolRef.current) return;
+          const reactEvent = finalizeEvent({
+            kind: 7,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [
+              ['e', event.id],
+              ['p', event.pubkey]
+            ],
+            content: emoji,
+          }, sk as any);
 
-      // 3. Schedule each selected reaction
-      selectedEmojis.forEach(emoji => {
-        addTaskToQueue({
-          id: `reaction-${event.id}-${emoji}-${Math.random()}`,
-          description: `Reaction "${emoji}" to ${event.id.substring(0, 8)}`,
-          execute: async () => {
-            if (!currentIdentity || !poolRef.current) return;
-            const reactEvent = finalizeEvent({
-              kind: 7,
-              created_at: Math.floor(Date.now() / 1000),
-              tags: [
-                ['e', event.id],
-                ['p', event.pubkey]
-              ],
-              content: emoji,
-            }, currentIdentity.sk);
-            
+          try {
             const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
-            try {
-              const pubs = poolRef.current.publish(allRelays, reactEvent);
-              const results = await Promise.allSettled(pubs);
-              const successCount = results.filter(r => r.status === 'fulfilled').length;
-              
-              if (successCount > 0) {
-                addLog(`Reacted with "${emoji}" (Sent to ${successCount}/${allRelays.length} relays)`, 'success');
-                if (activeIdentityId) updateIdentityStats(activeIdentityId, { reactionsSent: 1 });
-              } else {
-                addLog(`Reaction failed to publish.`, 'error');
-              }
-            } catch (e) {
-              addLog(`Failed to broadcast reaction.`, 'error');
+            const pubs = poolRef.current.publish(allRelays, reactEvent);
+            const results = await Promise.allSettled(pubs);
+            if (results.some(r => r.status === 'fulfilled')) {
+              addLog(`[${identity.name}] Reacted with ${emoji}`, 'success');
+              updateIdentityStats(identity.id, { reactionsSent: 1 });
             }
-          }
-        });
+          } catch (e) {}
+        }
       });
     };
 
     const scheduleRepost = (event: any, relays: string[]) => {
-      if (!settings.repostNotes) return;
+      if (!identity.settings.repostNotes) return;
 
       addTaskToQueue({
         id: `repost-${event.id}-${Math.random()}`,
-        description: `Repost ${event.id.substring(0, 8)}`,
+        description: `[${identity.name}] Repost ${event.id.substring(0, 8)}`,
         execute: async () => {
-          if (!currentIdentity || !poolRef.current) return;
-          
+          if (!poolRef.current) return;
           const repostEvent = finalizeEvent({
             kind: 6,
             created_at: Math.floor(Date.now() / 1000),
@@ -2139,264 +2056,112 @@ export default function App() {
               ['p', event.pubkey]
             ],
             content: '',
-          }, currentIdentity.sk);
+          }, sk as any);
 
-          const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
           try {
+            const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
             const pubs = poolRef.current.publish(allRelays, repostEvent);
-            const results = await Promise.allSettled(pubs);
-            const successCount = results.filter(r => r.status === 'fulfilled').length;
-
-            if (successCount > 0) {
-              addLog(`Reposted note ${event.id.substring(0, 8)}...`, 'success');
-            } else {
-              addLog(`Failed to publish repost.`, 'error');
-            }
-          } catch (e) {
-            addLog(`Failed to broadcast repost.`, 'error');
-          }
+            await Promise.allSettled(pubs);
+            addLog(`[${identity.name}] Reposted note.`, 'success');
+          } catch (e) {}
         }
       });
     };
 
     const scheduleFollow = (pubkey: string, relays: string[]) => {
-      if (!settings.autoFollowBack) return;
+      if (!identity.settings.autoFollowBack) return;
 
       addTaskToQueue({
         id: `follow-${pubkey}-${Math.random()}`,
-        description: `Follow ${pubkey.substring(0, 8)}`,
+        description: `[${identity.name}] Follow ${pubkey.substring(0, 8)}`,
         execute: async () => {
-          if (!currentIdentity || !poolRef.current) return;
-          
-          // Get current follow list
-          const currentFollows = await poolRef.current.get(SEARCH_RELAYS, {
+          if (!poolRef.current) return;
+          const followEvent = await poolRef.current.get(SEARCH_RELAYS, {
             kinds: [3],
-            authors: [currentIdentity.pk]
+            authors: [pk]
           });
 
-          const tags = currentFollows ? currentFollows.tags : [];
-          // Check if already following
+          const tags = followEvent ? followEvent.tags : [];
           if (tags.some((t: string[]) => t[0] === 'p' && t[1] === pubkey)) return;
 
           const newTags = [...tags, ['p', pubkey]];
-          const followEvent = finalizeEvent({
+          const event = finalizeEvent({
             kind: 3,
             created_at: Math.floor(Date.now() / 1000),
             tags: newTags,
             content: '',
-          }, currentIdentity.sk);
+          }, sk as any);
 
-          const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
           try {
-            const pubs = poolRef.current.publish(allRelays, followEvent);
-            const results = await Promise.allSettled(pubs);
-            const successCount = results.filter(r => r.status === 'fulfilled').length;
-
-            if (successCount > 0) {
-              addLog(`Followed back ${pubkey.substring(0, 8)}...`, 'success');
-              // Update local state to include the new follow immediately
-              setTargetFollows(prev => [...new Set([...prev, pubkey])]);
-            } else {
-              addLog(`Failed to publish follow event.`, 'error');
-            }
-          } catch (e) {
-            addLog(`Failed to broadcast follow event.`, 'error');
-          }
+            const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
+            const pubs = poolRef.current.publish(allRelays, event);
+            await Promise.allSettled(pubs);
+            addLog(`[${identity.name}] Followed back user.`, 'success');
+          } catch (e) {}
         }
       });
     };
 
-    // 3. Publish initial profile
-    if (currentIdentity) {
-      addLog(`Starting with identity: ${settings.profile.name} (${nip19.npubEncode(currentIdentity.pk).substring(0, 12)}...)`, 'info', currentIdentity.pk);
-      await publishProfile(currentIdentity.sk, settings.profile, targetRelays);
-    }
+    // 3. Initial profile publish
+    await publishProfile(sk as any, identity.settings.profile, targetRelays);
 
-    // 4. Initial catch-up (last 10 notes + 2 comments)
-    addLog('Performing initial catch-up...', 'info');
-    try {
-      // Use a timeout for the catch-up query to prevent hanging
-      const fetchLastEvents = async () => {
-        return await poolRef.current!.querySync(targetRelays, {
-          kinds: [1],
-          authors: [targetHex],
-          limit: 20
-        });
-      };
-
-      const lastEvents = await Promise.race([
-        fetchLastEvents(),
-        new Promise<any[]>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
-      ]);
-
-      if (lastEvents && lastEvents.length > 0) {
-        const topLevelNotes = lastEvents.filter(n => {
-          const eTags = n.tags.filter(t => t[0] === 'e');
-          const isReply = eTags.some(t => t[3] === 'reply' || t[3] === 'root');
-          return !(eTags.length > 0 && isReply);
-        });
-
-        const commentNotes = lastEvents.filter(n => {
-          const eTags = n.tags.filter(t => t[0] === 'e');
-          const isReply = eTags.some(t => t[3] === 'reply' || t[3] === 'root');
-          return eTags.length > 0 && isReply;
-        });
-
-        // Catch-up for top-level notes
-        if (topLevelNotes.length > 0) {
-          const replyNote = topLevelNotes[Math.floor(Math.random() * Math.min(10, topLevelNotes.length))];
-          
-          if (!processedEventsRef.current.has(replyNote.id)) {
-            processedEventsRef.current.add(replyNote.id);
-            scheduleReply(replyNote, targetRelays);
-          }
-
-          if (settings.reactToNotes) {
-            const reactNotes = [...topLevelNotes]
-              .sort(() => 0.5 - Math.random())
-              .slice(0, 3);
-            
-            reactNotes.forEach(n => {
-              if (!processedEventsRef.current.has(n.id)) {
-                processedEventsRef.current.add(n.id);
-                scheduleReactions(n, targetRelays, false);
-              }
-            });
-            addLog(`Scheduled catch-up for notes: deduplicated reply and reactions.`, 'success');
-          } else {
-            addLog(`Scheduled catch-up for notes: 1 reply.`, 'success');
-          }
-        }
-
-        // Catch-up for comments (react to 2)
-        if (commentNotes.length > 0 && settings.reactToNotes) {
-          const reactComments = [...commentNotes]
-            .sort(() => 0.5 - Math.random())
-            .slice(0, 2);
-          
-          reactComments.forEach(n => {
-            if (!processedEventsRef.current.has(n.id)) {
-              processedEventsRef.current.add(n.id);
-              scheduleReactions(n, targetRelays, true);
-            }
-          });
-          addLog(`Scheduled catch-up for comments: reactions scheduled.`, 'success');
-        }
-      }
-    } catch (e) {
-      addLog('Failed to perform catch-up query.', 'error');
-    }
-
-    // 5. Subscribe to target's notes and replies to self
+    // 4. Monitoring loop
     const eventHandler = (event: any) => {
-      if (event.pubkey === currentIdentity!.pk) return; // Ignore own events
-      if (processedEventsRef.current.has(event.id)) return; // Already handled
-      
+      if (event.pubkey === pk) return;
+      if (processedEventsRef.current.has(event.id)) return;
       processedEventsRef.current.add(event.id);
 
-      if (isVerbose) {
-        addLog(`Event received: ${event.id.substring(0, 8)} (Kind: ${event.kind})`, 'info');
-      }
-
-      // Track received stats
-      const mentionsSelf = event.tags.some((t: any) => t[0] === 'p' && t[1] === currentIdentity!.pk);
-      if (mentionsSelf && activeIdentityId) {
+      // Received stats
+      const mentionsSelf = event.tags.some((t: any) => t[0] === 'p' && t[1] === pk);
+      if (mentionsSelf) {
         if (event.kind === 1) {
-          updateIdentityStats(activeIdentityId, { repliesReceived: 1 });
-          if (settings.autoFollowBack) scheduleFollow(event.pubkey, targetRelays);
+          addLog(`[${identity.name}] New mention from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey);
+          updateIdentityStats(identity.id, { repliesReceived: 1 });
+          if (identity.settings.autoFollowBack) scheduleFollow(event.pubkey, targetRelays);
         }
         if (event.kind === 7) {
-          updateIdentityStats(activeIdentityId, { reactionsReceived: 1 });
-          if (settings.autoFollowBack) scheduleFollow(event.pubkey, targetRelays);
+          addLog(`[${identity.name}] New reaction from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey);
+          updateIdentityStats(identity.id, { reactionsReceived: 1 });
+          if (identity.settings.autoFollowBack) scheduleFollow(event.pubkey, targetRelays);
         }
       }
 
-      if (event.kind === 7) return; // Don't process reactions further
-      
-      const eTags = event.tags.filter((t: any) => t[0] === 'e');
-      const isReply = eTags.some((t: any) => t[3] === 'reply' || t[3] === 'root');
-      
-      // Check if it's a mention/reply to us from someone else
+      if (event.kind === 7) return;
+
       if (mentionsSelf && event.pubkey !== targetHex) {
-        addLog(`New mention/reply from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey);
         scheduleReply(event, targetRelays);
-        scheduleReactions(event, targetRelays, true);
-        return;
-      }
-
-      if (event.pubkey === targetHex) {
-        if (eTags.length > 0 && isReply) {
-          // If the target is replying specifically to us, always reply back
-          if (mentionsSelf) {
-            addLog(`Target replied to us! ${event.id.substring(0, 8)}...`, 'success', event.pubkey);
-            scheduleReply(event, targetRelays);
-            scheduleReactions(event, targetRelays, true);
-            return;
-          }
-
-          // Otherwise it's just a general comment/reply from the target. React to 1/3 of them.
-          if (Math.random() < 0.33) {
-            addLog(`Reacting to target's comment: ${event.id.substring(0, 8)}...`, 'success', event.pubkey);
-            scheduleReactions(event, targetRelays, true);
-          } else if (isVerbose) {
-            addLog(`Skipped reaction for target's comment: ${event.id.substring(0, 8)}`, 'info', event.pubkey);
-          }
-          return;
-        }
-
-        addLog(`New note from target: ${event.id.substring(0, 8)}...`, 'success', event.pubkey);
+        scheduleReactions(event, targetRelays);
+      } else if (event.pubkey === targetHex) {
+        addLog(`[${identity.name}] New note from target: ${event.id.substring(0, 8)}...`, 'success', event.pubkey);
         scheduleReply(event, targetRelays);
-        scheduleReactions(event, targetRelays, false);
-        
-        // --- NEW: Repost logic ---
-        if (settings.repostNotes && !isReply && Math.random() < 0.1) {
-           scheduleRepost(event, targetRelays);
-        }
-        return;
-      }
-
-      // Check if it's from someone the bot follows (Feed Note)
-      if (targetFollows.includes(event.pubkey)) {
-        // Much lower probability for feed notes (5% for reply, 10% for reaction)
-        if (Math.random() < 0.05) {
-          addLog(`Interacting with feed note from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey);
-          scheduleReply(event, targetRelays);
-          scheduleReactions(event, targetRelays, true);
-        } else if (Math.random() < 0.1) {
-          addLog(`Reacting to feed note from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey);
-          scheduleReactions(event, targetRelays, true);
-        }
+        scheduleReactions(event, targetRelays);
+        if (identity.settings.repostNotes) scheduleRepost(event, targetRelays);
       }
     };
 
+    const now = Math.floor(Date.now() / 1000);
+    
+    // Subscribe to target notes
     const subTarget = poolRef.current.subscribeMany(targetRelays, 
       {
         kinds: [1],
         authors: [targetHex],
-        since: Math.floor(Date.now() / 1000)
+        since: now
       }, { onevent: eventHandler });
 
-    const subMentions = poolRef.current.subscribeMany([...new Set([...targetRelays, ...PUBLISH_RELAYS])], 
+    // Subscribe to mentions
+    const mentionRelays = [...new Set([...targetRelays, ...PUBLISH_RELAYS])];
+    const subMentions = poolRef.current.subscribeMany(mentionRelays, 
       {
         kinds: [1, 7],
-        '#p': [currentIdentity!.pk],
-        since: Math.floor(Date.now() / 1000)
+        '#p': [pk],
+        since: now
       }, { onevent: eventHandler });
 
-    if (follows.length > 0) {
-      const subFeed = poolRef.current.subscribeMany(targetRelays,
-        {
-          kinds: [1],
-          authors: follows,
-          since: Math.floor(Date.now() / 1000)
-        }, { onevent: eventHandler });
-      subscriptionsRef.current.push(subFeed);
-    }
-
-    subscriptionsRef.current.push(subTarget, subMentions);
-    addLog('Subscription active. Monitoring for notes and mentions...', 'info');
+    const currentSubs = subscriptionsRef.current.get(identity.id) || [];
+    subscriptionsRef.current.set(identity.id, [...currentSubs, subTarget, subMentions]);
+    addLog(`[${identity.name}] Real-time monitoring active.`, 'info');
   };
-
   // --- Render Helpers ---
 
   return (
@@ -2652,9 +2417,9 @@ export default function App() {
               The bot will monitor this user's outbox relays for new notes.
             </p>
 
-            {isRunning ? (
+            {activeIdentityId && isRunning(activeIdentityId) ? (
               <button 
-                onClick={stopBot}
+                onClick={() => stopBot(activeIdentityId)}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-500/10 text-red-500 border border-red-500/20 rounded-xl hover:bg-red-500/20 transition-all font-semibold"
               >
                 <Square className="w-4 h-4 fill-current" />
@@ -2662,11 +2427,24 @@ export default function App() {
               </button>
             ) : (
               <button 
-                onClick={startBot}
-                disabled={settings.useAI && aiStatus !== 'ready'}
+                onClick={() => {
+                  if (activeIdentityId && currentIdentity) {
+                    const identity: Identity = {
+                      id: activeIdentityId,
+                      name: settings.profile.name,
+                      settings: settings,
+                      nsec: nip19.nsecEncode(currentIdentity.sk),
+                      createdAt: Date.now(),
+                      updatedAt: Date.now(),
+                      stats: INITIAL_STATS
+                    };
+                    startBot(identity);
+                  }
+                }}
+                disabled={(settings.useAI && aiStatus !== 'ready') || !activeIdentityId}
                 className={cn(
                   "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all font-bold shadow-lg",
-                  settings.useAI && aiStatus !== 'ready'
+                  (settings.useAI && aiStatus !== 'ready') || !activeIdentityId
                     ? "bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700 shadow-none"
                     : "bg-emerald-500 text-black hover:bg-emerald-400 shadow-emerald-500/20"
                 )}
@@ -3229,6 +3007,15 @@ export default function App() {
                         <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Saved Bots ({savedIdentities.filter(i => !i.deleted).length})</p>
                       </div>
                       <div className="flex items-center gap-2">
+                        {isAnyBotRunning && (
+                          <button 
+                            onClick={() => stopBot()}
+                            className="px-3 py-1.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all flex items-center gap-2"
+                          >
+                            <Square className="w-3 h-3 fill-current" />
+                            Stop All
+                          </button>
+                        )}
                         <button 
                           onClick={() => {
                             const name = prompt('Enter a name for this bot:');
@@ -3303,15 +3090,30 @@ export default function App() {
                                 </div>
                                 
                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  {activeIdentityId !== identity.id && (
-                                    <button 
-                                      onClick={() => loadIdentity(identity)}
-                                      className="p-2 bg-zinc-800 text-emerald-400 rounded-xl hover:bg-emerald-500 hover:text-black transition-all shadow-lg"
-                                      title="Load Identity"
-                                    >
-                                      <Play className="w-4 h-4 fill-current" />
-                                    </button>
-                                  )}
+                                  <button 
+                                    onClick={() => loadIdentity(identity)}
+                                    className={cn(
+                                      "p-2 rounded-xl transition-all shadow-lg",
+                                      activeIdentityId === identity.id 
+                                        ? "bg-emerald-500 text-black" 
+                                        : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                                    )}
+                                    title="Load to Main UI"
+                                  >
+                                    <SettingsIcon className="w-4 h-4" />
+                                  </button>
+                                  <button 
+                                    onClick={() => isRunning(identity.id) ? stopBot(identity.id) : startBot(identity)}
+                                    className={cn(
+                                      "p-2 rounded-xl transition-all shadow-lg",
+                                      isRunning(identity.id)
+                                        ? "bg-red-500 text-white hover:bg-red-600"
+                                        : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black"
+                                    )}
+                                    title={isRunning(identity.id) ? "Stop Bot" : "Start Bot"}
+                                  >
+                                    {isRunning(identity.id) ? <Square className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
+                                  </button>
                                   <button 
                                     onClick={() => deleteIdentity(identity.id)}
                                     className="p-2 bg-zinc-800 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-lg"
@@ -3354,7 +3156,16 @@ export default function App() {
 
                               {activeIdentityId === identity.id && (
                                 <div className="absolute top-0 right-0 p-1.5">
-                                  <span className="px-2 py-0.5 bg-emerald-500 text-black text-[8px] font-black uppercase tracking-tighter rounded-bl-lg shadow-lg">Active</span>
+                                  <span className="px-2 py-0.5 bg-emerald-500 text-black text-[8px] font-black uppercase tracking-tighter rounded-bl-lg shadow-lg">Focused</span>
+                                </div>
+                              )}
+
+                              {isRunning(identity.id) && (
+                                <div className="absolute top-0 left-0 p-1.5">
+                                  <div className="flex items-center gap-1.5 px-2 py-0.5 bg-black/60 backdrop-blur-md rounded-br-lg border-r border-b border-emerald-500/30">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                                    <span className="text-emerald-500 text-[8px] font-black uppercase tracking-tighter">Live</span>
+                                  </div>
                                 </div>
                               )}
                             </div>
