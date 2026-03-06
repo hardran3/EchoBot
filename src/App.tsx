@@ -46,7 +46,8 @@ import {
   ChevronDown,
   PenTool,
   Calendar,
-  UserCircle
+  UserCircle,
+  FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -93,6 +94,7 @@ interface BotStats {
   repliesSent: Record<string, number>;
   reactionsSent: Record<string, number>;
   repostsSent: Record<string, number>;
+  proactiveNotesSent: Record<string, number>;
   repliesReceived: Record<string, number>;
   reactionsReceived: Record<string, number>;
 }
@@ -936,15 +938,22 @@ export default function App() {
               repliesSent: { [deviceId]: legacy.repliesSent || 0 },
               reactionsSent: { [deviceId]: legacy.reactionsSent || 0 },
               repostsSent: { [deviceId]: legacy.repostsSent || 0 },
+              proactiveNotesSent: { [deviceId]: 0 },
               repliesReceived: { [deviceId]: legacy.repliesReceived || 0 },
               reactionsReceived: { [deviceId]: legacy.reactionsReceived || 0 },
             };
             needsMigration = true;
           }
-          // Ensure repostsSent exists in existing device-mapped stats
-          if (updated.stats && !updated.stats.repostsSent) {
-            updated.stats.repostsSent = {};
-            needsMigration = true;
+          // Ensure mandatory stat maps exist
+          if (updated.stats) {
+            if (!updated.stats.repostsSent) {
+              updated.stats.repostsSent = {};
+              needsMigration = true;
+            }
+            if (!updated.stats.proactiveNotesSent) {
+              updated.stats.proactiveNotesSent = {};
+              needsMigration = true;
+            }
           }
           // Pre-calculate npub if missing
           if (!updated.npub) {
@@ -1283,6 +1292,7 @@ export default function App() {
               repliesSent: { ...(cloud.stats?.repliesSent || {}), ...(local.stats?.repliesSent || {}) },
               reactionsSent: { ...(cloud.stats?.reactionsSent || {}), ...(local.stats?.reactionsSent || {}) },
               repostsSent: { ...(cloud.stats?.repostsSent || {}), ...(local.stats?.repostsSent || {}) },
+              proactiveNotesSent: { ...(cloud.stats?.proactiveNotesSent || {}), ...(local.stats?.proactiveNotesSent || {}) },
               repliesReceived: { ...(cloud.stats?.repliesReceived || {}), ...(local.stats?.repliesReceived || {}) },
               reactionsReceived: { ...(cloud.stats?.reactionsReceived || {}), ...(local.stats?.reactionsReceived || {}) },
             };
@@ -1296,6 +1306,7 @@ export default function App() {
             repliesSent: { ...(local.stats?.repliesSent || {}), ...(cloud.stats?.repliesSent || {}) },
             reactionsSent: { ...(local.stats?.reactionsSent || {}), ...(cloud.stats?.reactionsSent || {}) },
             repostsSent: { ...(local.stats?.repostsSent || {}), ...(cloud.stats?.repostsSent || {}) },
+            proactiveNotesSent: { ...(local.stats?.proactiveNotesSent || {}), ...(cloud.stats?.proactiveNotesSent || {}) },
             repliesReceived: { ...(local.stats?.repliesReceived || {}), ...(cloud.stats?.repliesReceived || {}) },
             reactionsReceived: { ...(local.stats?.reactionsReceived || {}), ...(cloud.stats?.reactionsReceived || {}) },
           };
@@ -1760,6 +1771,7 @@ export default function App() {
     repliesSent: {},
     reactionsSent: {},
     repostsSent: {},
+    proactiveNotesSent: {},
     repliesReceived: {},
     reactionsReceived: {}
   };
@@ -1794,13 +1806,14 @@ export default function App() {
 
     // 2. Update Session Stats
     setSessionStats(prev => {
-      const current = prev[id] || { replies: 0, reactions: 0, reposts: 0 };
+      const current = prev[id] || { replies: 0, reactions: 0, reposts: 0, proactive: 0 };
       return {
         ...prev,
         [id]: {
           replies: current.replies + (update.repliesSent || 0),
           reactions: current.reactions + (update.reactionsSent || 0),
-          reposts: current.reposts + (update.repostsSent || 0)
+          reposts: current.reposts + (update.repostsSent || 0),
+          proactive: current.proactive + (update.proactiveNotesSent || 0)
         }
       };
     });
@@ -2482,6 +2495,7 @@ export default function App() {
           await Promise.allSettled(pubs);
 
           addLog(`[${identity.name}] Posted original note: "${content.substring(0, 30)}..."`, 'success');
+          updateIdentityStats(identity.id, { proactiveNotesSent: 1 });
           
           // Calculate next fuzzy post time (interval ± 15% jitter)
           const baseMins = identity.settings.proactive.interval;
@@ -2669,6 +2683,10 @@ export default function App() {
                         </div>
 
                         <div className="flex items-center gap-4 shrink-0 px-3 py-1 bg-zinc-900/50 rounded-lg border border-zinc-800/50">
+                          <div className="flex items-center gap-1.5" title="Original Notes">
+                            <FileText className="w-3 h-3 text-blue-500/60" />
+                            <span className="text-xs font-mono font-bold text-zinc-300">{sessionStats[bot.id]?.proactive || 0}</span>
+                          </div>
                           <div className="flex items-center gap-1.5" title="Replies">
                             <MessageSquare className="w-3 h-3 text-emerald-500/60" />
                             <span className="text-xs font-mono font-bold text-zinc-300">{sessionStats[bot.id]?.replies || 0}</span>
@@ -3765,6 +3783,10 @@ export default function App() {
                                 <div className="space-y-0.5 border-r border-zinc-800/50 pr-2">
                                   <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Sent</p>
                                   <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-1" title="Original Notes">
+                                      <FileText className="w-2.5 h-2.5 text-blue-500" />
+                                      <span className="text-xs font-bold text-zinc-300">{sumStats(identity.stats?.proactiveNotesSent)}</span>
+                                    </div>
                                     <div className="flex items-center gap-1" title="Replies Sent">
                                       <MessageSquare className="w-2.5 h-2.5 text-emerald-500" />
                                       <span className="text-xs font-bold text-zinc-300">{sumStats(identity.stats?.repliesSent)}</span>
@@ -3777,8 +3799,7 @@ export default function App() {
                                       <RefreshCw className="w-2.5 h-2.5 text-purple-500" />
                                       <span className="text-xs font-bold text-zinc-300">{sumStats(identity.stats?.repostsSent)}</span>
                                     </div>
-                                  </div>
-                                </div>
+                                  </div>                                </div>
                                 <div className="space-y-0.5 pl-1">
                                   <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Received</p>
                                   <div className="flex items-center gap-3">
