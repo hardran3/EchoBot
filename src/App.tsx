@@ -3445,6 +3445,7 @@ export default function App() {
                                             src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${targetPk || identity.settings.targetNpub}`} 
                                             className="w-5 h-5 rounded-full object-cover border border-zinc-700 shrink-0 shadow-md" 
                                             alt=""
+                                            crossOrigin="anonymous"
                                           />
                                           <span className="text-[11px] font-bold text-zinc-300 truncate tracking-tight">
                                             {identity.settings.targetName || profile?.name || identity.settings.targetNpub.substring(0, 8)}
@@ -4044,6 +4045,7 @@ export default function App() {
                     src={communityProfiles[zapData.author]?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${zapData.author}`} 
                     alt="" 
                     className="w-8 h-8 rounded-full border border-zinc-700"
+                    crossOrigin="anonymous"
                   />
                   <div className="min-w-0">
                     <p className="text-xs font-bold text-white truncate">{communityProfiles[zapData.author]?.name || 'Anonymous'}</p>
