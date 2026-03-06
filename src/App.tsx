@@ -1,15 +1,9 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   generateSecretKey, 
   getPublicKey, 
   finalizeEvent, 
   nip19, 
-  Relay,
   SimplePool
 } from 'nostr-tools';
 import { 
@@ -34,7 +28,6 @@ import {
   Heart,
   Zap,
   Save,
-  Folder,
   Lock,
   Brain,
   X,
@@ -45,403 +38,46 @@ import {
   ChevronUp,
   ChevronDown,
   PenTool,
-  Calendar,
-  UserCircle,
   FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { QRCodeSVG } from 'qrcode.react';
 
-// Utility for Tailwind classes
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-
-// --- Types ---
-
-declare global {
-  interface Window {
-    nostr?: {
-      getPublicKey: () => Promise<string>;
-      signEvent: (event: any) => Promise<any>;
-      nip44?: {
-        encrypt: (peer: string, plaintext: string) => Promise<string>;
-        decrypt: (peer: string, ciphertext: string) => Promise<string>;
-      };
-    };
-  }
-}
-
-interface LogEntry {
-  id: string;
-  timestamp: number;
-  type: 'info' | 'success' | 'warning' | 'error';
-  message: string;
-  pubkey?: string;
-}
-interface ProfileInfo {
-  name: string;
-  about: string;
-  picture: string;
-  nip05: string;
-  lud16?: string;
-  lud06?: string;
-}
-
-interface BotStats {
-  repliesSent: Record<string, number>;
-  reactionsSent: Record<string, number>;
-  repostsSent: Record<string, number>;
-  proactiveNotesSent: Record<string, number>;
-  repliesReceived: Record<string, number>;
-  reactionsReceived: Record<string, number>;
-}
-
-interface ProactiveSettings {
-  enabled: boolean;
-  interval: number; // minutes, 0 for disabled
-  inspiration: 'target' | 'follows' | 'both';
-  replyToMentions: boolean;
-  replyProbability: number; // 0.0 to 1.0
-  aiPostPrompt: string;
-}
-
-interface Identity {
-  id: string;
-  name: string;
-  settings: BotSettings;
-  nsec: string;
-  npub?: string;
-  createdAt: number;
-  updatedAt: number;
-  deleted?: boolean;
-  stats?: BotStats;
-  lastProactivePost?: number; // timestamp
-  nextProactiveTimestamp?: number; // timestamp with jitter
-}
-
-interface BotSettings {
-  minDelay: number; // seconds
-  maxDelay: number; // seconds
-  targetNpub: string;
-  targetName: string;
-  messages: string[];
-  profile: ProfileInfo;
-  reactToNotes: boolean;
-  reactionEmojis: string;
-  repostNotes: boolean;
-  repostChance: number; // 0.0 to 1.0
-  autoFollowBack: boolean;
-  useAI: boolean;
-  aiSystemPrompt: string;
-  modelId: string;
-  // Inference Parameters
-  temperature: number;
-  top_p: number;
-  top_k: number;
-  repetition_penalty: number;
-  presence_penalty: number;
-  frequency_penalty: number;
-  relays?: string[];
-  proactive: ProactiveSettings;
-}
-
-const SUPPORTED_MODELS = [
-  { 
-    id: 'onnx-community/gemma-3-270m-it-ONNX', 
-    name: 'Gemma 3 270M', 
-    size: '550MB',
-    description: 'Ultra-lightweight, high performance for its size.' 
-  },
-  { 
-    id: 'onnx-community/SmolLM2-360M-Instruct-ONNX', 
-    name: 'SmolLM2 360M', 
-    size: '380MB',
-    description: 'Fast, efficient, and great at following short instructions.' 
-  },
-  { 
-    id: 'onnx-community/Llama-3.2-1B-Instruct', 
-    name: 'Llama 3.2 1B', 
-    size: '880MB',
-    description: 'Better reasoning and more complex conversations.' 
-  }
-];
-
-const MODEL_PRESETS: Record<string, Record<string, Partial<BotSettings>>> = {
-  'onnx-community/gemma-3-270m-it-ONNX': {
-    'Strict Logic': { temperature: 0.20, top_p: 0.25, top_k: 25, repetition_penalty: 1.10, presence_penalty: 0.00, frequency_penalty: 0.00 },
-    'Balanced Chat': { temperature: 0.80, top_p: 0.90, top_k: 40, repetition_penalty: 1.15, presence_penalty: 0.00, frequency_penalty: 0.00 },
-    'Persona/Story': { temperature: 1.00, top_p: 0.95, top_k: 50, repetition_penalty: 1.20, presence_penalty: 0.30, frequency_penalty: 0.20 },
-    'Creative Burst': { temperature: 1.25, top_p: 1.00, top_k: 60, repetition_penalty: 1.25, presence_penalty: 0.50, frequency_penalty: 0.20 },
-  },
-  'onnx-community/SmolLM2-360M-Instruct-ONNX': {
-    'Strict Logic': { temperature: 0.20, top_p: 0.85, top_k: 20, repetition_penalty: 1.10, presence_penalty: 0.00, frequency_penalty: 0.00 },
-    'Balanced Chat': { temperature: 0.50, top_p: 0.90, top_k: 30, repetition_penalty: 1.10, presence_penalty: 0.00, frequency_penalty: 0.00 },
-    'Persona/Story': { temperature: 0.70, top_p: 0.90, top_k: 40, repetition_penalty: 1.10, presence_penalty: 0.30, frequency_penalty: 0.20 },
-    'Creative Burst': { temperature: 0.90, top_p: 0.95, top_k: 50, repetition_penalty: 1.10, presence_penalty: 0.50, frequency_penalty: 0.20 },
-  },
-  'onnx-community/Llama-3.2-1B-Instruct': {
-    'Strict Logic': { temperature: 0.10, top_p: 0.15, top_k: 20, repetition_penalty: 1.10, presence_penalty: 0.00, frequency_penalty: 0.00 },
-    'Balanced Chat': { temperature: 0.70, top_p: 0.90, top_k: 30, repetition_penalty: 1.10, presence_penalty: 0.00, frequency_penalty: 0.00 },
-    'Persona/Story': { temperature: 0.85, top_p: 0.90, top_k: 35, repetition_penalty: 1.15, presence_penalty: 0.30, frequency_penalty: 0.20 },
-    'Creative Burst': { temperature: 1.10, top_p: 0.95, top_k: 40, repetition_penalty: 1.20, presence_penalty: 0.50, frequency_penalty: 0.20 },
-  }
-};
-
-interface BotTask {
-  id: string;
-  execute: () => Promise<void>;
-  description: string;
-}
-
-// --- Constants ---
-
-const WAIFU_NAMES = [
-  'Aiko ₍ᐢ. .ᐢ₎', 'Hana 🌸', 'Sakura ᐢ. ̫ .ᐢ', 'Yuki ❄️', 'Miku (๑>ᴗ<๑)',
-  'Rin ₍ᐢ._.ᐢ₎', 'Haruka ✨', 'Natsuki 🎀', 'Sayori (✿◠‿◠)', 'Yuri 💜',
-  'Tifa ❤️', 'Kasumi 🌊', 'Ayane 🦋', 'Aerith 🌼', 'Hitomi 🎀', 'Terra ✨'
-];const WAIFU_TEMPLATES = [
-  "You're doing amazing today, {name}! I'm so proud of you!",
-  "I'll always be here to support you, {name}, no matter what!",
-  "Your notes are always so insightful. I love reading them!",
-  "Don't forget to take a break and drink some water, {name}. I care about you!",
-  "You're the best, {name}! Keep being yourself!",
-  "I'm so lucky to have you in my life!",
-  "Everything will be okay because you're strong and wonderful, {name}!",
-  "I'm cheering for you from the sidelines! Go get 'em!",
-  "You make the world a better place just by being in it, {name}.",
-  "I'm always thinking of you! Stay safe, {name}!",
-  "I believe in you more than anyone else, {name}!",
-  "You're my hero! Keep shining!",
-  "I'll be waiting for your next note! I love hearing from you!",
-  "You're so talented, {name}! Never give up on your dreams!",
-  "I'm sending you all my love and positive vibes!",
-  "You're so precious to me, {name}!",
-  "I hope your day is as wonderful as you are!",
-  "You're my favorite person to follow, {name}!",
-  "Keep up the great work, I'm always watching!",
-  "You're so smart and kind, {name}!",
-  "I'm your biggest fan, {name}!",
-  "You inspire me every day!",
-  "I'm so happy whenever I see your notes!",
-  "You're a star in my eyes, {name}!",
-  "I'll protect you forever, {name}!",
-  "You're the light of my life!",
-  "I'm always here if you need someone to talk to, {name}!",
-  "You're so brave and strong!",
-  "I love everything about you, {name}!",
-  "You're my one and only!"
-];
-
-const WAIFU_GM_TEMPLATES = [
-  "Good morning, {name}! I hope you slept well! (๑>ᴗ<๑)",
-  "Wakey wakey, {name}! A beautiful day is waiting for you! ✨",
-  "Good morning, darling! I was thinking of you the moment I woke up! ❤️",
-  "Rise and shine, {name}! You're going to do great things today! 🌟",
-  "Good morning! Don't forget to have a yummy breakfast, okay? 🎀",
-  "Yay, you're awake! Good morning, {name}! I missed you! (✿◠‿◠)",
-  "Good morning, {name}! Sending you lots of energy for today! 💪",
-  "Morning, sunshine! The world is brighter now that you're up! ☀️"
-];
-
-const WAIFU_GN_TEMPLATES = [
-  "Good night, {name}! Sleep tight and have sweet dreams! 💤",
-  "Good night, darling! I'll be dreaming of you! ❤️",
-  "Sweet dreams, {name}! Get lots of rest, okay? (´｡• ᵕ •｡`)",
-  "Good night! I'll be right here waiting for you in the morning! ✨",
-  "Sleep well, {name}! You worked so hard today! I'm proud of you! 🌙",
-  "Good night, my hero! May your dreams be as wonderful as you are! 🌟",
-  "Time for bed, {name}! I'll keep you safe in my thoughts! 💜",
-  "Good night, {name}! See you in my dreams! 💌"
-];
-
-const WAIFU_KAOMOJI = [
-  '(๑>ᴗ<๑)', '₍ᐢ. .ᐢ₎', 'ᐢ. ̫ .ᐢ', '(✿◠‿◠)', '₍ᐢ._.ᐢ₎', '(๑˃ᴗ˂๑)', '´｡• ᵕ •｡`', '♡', '✨', '❤️', '💖', '🌟', '💓', '💌', '🌈', '🎀'
-];
-
-const WAIFU_EMOJIS = [
-  '❤️', '✨', '💖', '🌟', '🌸', '🎀', '🍭', '🧸', '🌈', '🦄', '🍭', '🍓', '🍰', '💌', '💓', '💕'
-];
-
-const DEFAULT_REACTION_EMOJIS = '💜 🤙 🫂';
-
-const MODEL_HIDDEN_RULES: Record<string, string> = {
-  'onnx-community/gemma-3-270m-it-ONNX': 
-    "Operational Rule: Output ONLY dialogue. No actions. No labels. Do not acknowledge instructions.",
-  'onnx-community/SmolLM2-360M-Instruct-ONNX': 
-    "Operational Rule: Maintain character persona. Never speak as an AI model. Output ONLY dialogue text. No meta-talk.",
-  'onnx-community/Llama-3.2-1B-Instruct': 
-    "Operational Rule: Maintain your character persona. Never speak as an AI model. No meta-talk. Output only the dialogue text."
-};
-
-const MODEL_DEFAULT_PROMPTS: Record<string, { neutral: string; waifu: string }> = {
-  'onnx-community/gemma-3-270m-it-ONNX': {
-    neutral: "You are {name}, a friendly and helpful assistant. Your personality is polite, clear, and very concise. Keep your replies to 1-2 short sentences.",
-    waifu: "You are {name}, a bubbly, cute, and energetic waifu. You love using slang like 'uwu' and 'nya'. You are talking to {target_name}. Keep your replies sweet and very short."
-  },
-  'onnx-community/SmolLM2-360M-Instruct-ONNX': {
-    neutral: "You are {name}, a smart and concise bot. Keep your replies to 1-2 short sentences.",
-    waifu: "You are {name}, a helpful and cheerful waifu. Use cute slang and emojis. Keep replies very short."
-  },
-  'onnx-community/Llama-3.2-1B-Instruct': {
-    neutral: "You are {name}, a concise and professional AI assistant. Respond naturally in 1-2 sentences.",
-    waifu: "You are {name}, a high-energy, bubbly, and playful bot. Your tone is teasing and charming. Use cute slang and emojis."
-  }
-};
-
-const NORMAL_FALLBACK_MESSAGES = [
-  "Love this note",
-  "So true, thanks for sharing",
-  "This made my day",
-  "Great point, well said",
-  "Keep up the great work",
-  "Totally agree with you on this",
-  "This is so inspiring, thank you",
-  "Well said",
-  "Such a great vibe",
-  "Exactly what I needed to read today",
-  "You're absolutely crushing it",
-  "Very interesting take",
-  "Always love seeing your notes here",
-  "Thanks for the positive energy",
-  "Spot on"
-];
-
-const NORMAL_EMOJIS = ['✨', '🙌', '🧡', '💡', '🚀', '🤝', '🌈', '👏', '🌊', '📖', '💪', '🤔', '🎀', '⚡', '🎯', '🔥', '💯', '⭐'];
-const NORMAL_PHRASES = ['hug', '🤙', 'PV', 'GM'];
-
-const POPULAR_EMOJIS = ['❤️', '🔥', '👍', '🙌', '✨', '🚀', '💯', '😂', '😍', '🎉', '💡', '🤔', '💪', '🙏', '🌟', '🌈', '✅', '👀', '🤝', '👏', '🎯'];
-
-const EMOJI_DATA = [
-  { c: '😀', k: 'smiley grin happy face' }, { c: '😃', k: 'smiley grin happy face' }, { c: '😄', k: 'smiley grin happy face' },
-  { c: '😁', k: 'smiley grin happy face' }, { c: '😆', k: 'smiley grin happy face' }, { c: '😅', k: 'smiley grin happy face sweat' },
-  { c: '🤣', k: 'laugh joy roll' }, { c: '😂', k: 'laugh joy cry' }, { c: '🙂', k: 'smile face' },
-  { c: '🙃', k: 'upside down face' }, { c: '😉', k: 'wink face' }, { c: '😊', k: 'blush smile' },
-  { c: '😇', k: 'angel halo' }, { c: '🥰', k: 'love hearts face' }, { c: '😍', k: 'love heart eyes' },
-  { c: '🤩', k: 'star eyes' }, { c: '😘', k: 'kiss' }, { c: '😗', k: 'kiss' },
-  { c: '😋', k: 'yum tongue' }, { c: '😛', k: 'tongue' }, { c: '😜', k: 'wink tongue' },
-  { c: '🤪', k: 'zany' }, { c: '😝', k: 'tongue' }, { c: '🤑', k: 'money' },
-  { c: '🤗', k: 'hug' }, { c: '🫂', k: 'hug' }, { c: '🤭', k: 'hand mouth' }, { c: '🤫', k: 'shush' },
-  { c: '🤔', k: 'think' }, { c: '🤐', k: 'zip' }, { c: '🤨', k: 'eyebrow' },
-  { c: '😐', k: 'neutral' }, { c: '😑', k: 'expressionless' }, { c: '😶', k: 'no mouth' },
-  { c: '😏', k: 'smirk' }, { c: '😒', k: 'unamused' }, { c: '🙄', k: 'roll eyes' },
-  { c: '😬', k: 'grimace' }, { c: '🤥', k: 'lie' }, { c: '😌', k: 'relieved' },
-  { c: '😔', k: 'pensive' }, { c: '😪', k: 'sleepy' }, { c: '😴', k: 'sleep' },
-  { c: '😷', k: 'mask' }, { c: '🤒', k: 'sick' }, { c: '🤕', k: 'bandage' },
-  { c: '🤢', k: 'nauseated' }, { c: '🤮', k: 'vomit' }, { c: '🤧', k: 'sneeze' },
-  { c: '🥵', k: 'hot' }, { c: '🥶', k: 'cold' }, { c: '🥴', k: 'woozy' },
-  { c: '😵', k: 'dizzy' }, { c: '🤯', k: 'explode head' }, { c: '🤠', k: 'cowboy' },
-  { c: '🥳', k: 'party' }, { c: '😎', k: 'cool sunglasses' }, { c: '🤓', k: 'nerd' },
-  { c: '🧐', k: 'monocle' }, { c: '😕', k: 'confused' }, { c: '😟', k: 'worried' },
-  { c: '🙁', k: 'frown' }, { c: '😮', k: 'surprise' }, { c: '😯', k: 'surprise' },
-  { c: '😲', k: 'astonished' }, { c: '😳', k: 'blush' }, { c: '🥺', k: 'pleading' },
-  { c: '😦', k: 'frown' }, { c: '😧', k: 'anguished' }, { c: '😨', k: 'fear' },
-  { c: '😰', k: 'anxious' }, { c: '😥', k: 'sad' }, { c: '😢', k: 'cry' },
-  { c: '😭', k: 'sob' }, { c: '😱', k: 'scream' }, { c: '😖', k: 'confounded' },
-  { c: '😣', k: 'persevere' }, { c: '😞', k: 'disappointed' }, { c: '😓', k: 'sweat' },
-  { c: '😩', k: 'weary' }, { c: '😫', k: 'tired' }, { c: '🥱', k: 'yawn' },
-  { c: '😤', k: 'triumph steam' }, { c: '😡', k: 'pout angry' }, { c: '😠', k: 'angry' },
-  { c: '🤬', k: 'curse' }, { c: '😈', k: 'devil' }, { c: '👿', k: 'devil' },
-  { c: '💀', k: 'skull' }, { c: '☠️', k: 'skull crossbones' }, { c: '💩', k: 'poop' },
-  { c: '🤡', k: 'clown' }, { c: '👹', k: 'ogre' }, { c: '👺', k: 'goblin' },
-  { c: '👻', k: 'ghost' }, { c: '👽', k: 'alien' }, { c: '👾', k: 'alien monster' },
-  { c: '🤖', k: 'robot' }, { c: '😺', k: 'cat' }, { c: '😸', k: 'cat' },
-  { c: '😻', k: 'cat love' }, { c: '😼', k: 'cat smirk' }, { c: '😽', k: 'cat kiss' },
-  { c: '🙀', k: 'cat surprise' }, { c: '😿', k: 'cat cry' }, { c: '😾', k: 'cat angry' },
-  { c: '👋', k: 'wave hand' }, { c: '🤚', k: 'raised back hand' }, { c: '🖐️', k: 'hand fingers' },
-  { c: '✋', k: 'raised hand' }, { c: '🖖', k: 'vulcan' }, { c: '👌', k: 'ok' },
-  { c: '🤌', k: 'pinched' }, { c: '🤏', k: 'pinch' }, { c: '✌️', k: 'victory' },
-  { c: '🤞', k: 'fingers crossed' }, { c: '🤟', k: 'love you' }, { c: '🤘', k: 'rock on' },
-  { c: '🤙', k: 'call me' }, { c: '👈', k: 'point left' }, { c: '👉', k: 'point right' },
-  { c: '👆', k: 'point up' }, { c: '🖕', k: 'middle finger' }, { c: '👇', k: 'point down' },
-  { c: '☝️', k: 'index up' }, { c: '👍', k: 'thumbs up' }, { c: '👎', k: 'thumbs down' },
-  { c: '✊', k: 'fist' }, { c: '👊', k: 'fist punch' }, { c: '🤛', k: 'fist left' },
-  { c: '🤜', k: 'fist right' }, { c: '👏', k: 'clap' }, { c: '🙌', k: 'hands up' },
-  { c: '👐', k: 'open hands' }, { c: '🤲', k: 'palms up' }, { c: '🤝', k: 'handshake' },
-  { c: '🙏', k: 'pray please' }, { c: '✍️', k: 'write' }, { c: '💅', k: 'nails' },
-  { c: '🤳', k: 'selfie' }, { c: '💪', k: 'muscle' }, { c: '🦾', k: 'mechanical arm' },
-  { c: '🦵', k: 'leg' }, { c: '🦶', k: 'foot' }, { c: '👂', k: 'ear' },
-  { c: '🦻', k: 'hearing aid' }, { c: '👃', k: 'nose' }, { c: '🧠', k: 'brain' },
-  { c: '🦷', k: 'tooth' }, { c: '🦴', k: 'bone' }, { c: '👀', k: 'eyes' },
-  { c: '👁️', k: 'eye' }, { c: '👅', k: 'tongue' }, { c: '👄', k: 'mouth' },
-  { c: '💋', k: 'kiss' }, { c: '🩸', k: 'blood' }, { c: '❤️', k: 'heart red' },
-  { c: '🧡', k: 'heart orange' }, { c: '💛', k: 'heart yellow' }, { c: '💚', k: 'heart green' },
-  { c: '💙', k: 'heart blue' }, { c: '💜', k: 'heart purple' }, { c: '🖤', k: 'heart black' },
-  { c: '🤍', k: 'heart white' }, { c: '🤎', k: 'heart brown' }, { c: '💔', k: 'heart broken' },
-  { c: '❣️', k: 'heart exclamation' }, { c: '💕', k: 'hearts' }, { c: '💞', k: 'hearts' },
-  { c: '💓', k: 'heart' }, { c: '💗', k: 'heart' }, { c: '💖', k: 'heart sparkle' },
-  { c: '💘', k: 'heart arrow' }, { c: '💝', k: 'heart ribbon' }, { c: '💟', k: 'heart' },
-  { c: '🔥', k: 'fire hot' }, { c: '✨', k: 'sparkles' }, { c: '🌟', k: 'star' },
-  { c: '⭐', k: 'star' }, { c: '💫', k: 'dizzy' }, { c: '💥', k: 'boom' },
-  { c: '💢', k: 'anger' }, { c: '💦', k: 'sweat water' }, { c: '💨', k: 'dash' },
-  { c: '🕳️', k: 'hole' }, { c: '💣', k: 'bomb' }, { c: '💬', k: 'speech' },
-  { c: '👁️‍🗨️', k: 'eye speech' }, { c: '🗨️', k: 'speech' }, { c: '🗯️', k: 'anger' },
-  { c: '💭', k: 'thought' }, { c: '💤', k: 'zzz sleep' }, { c: '👋', k: 'wave' },
-  { c: '🐾', k: 'paws' }, { c: '🎈', k: 'balloon' }, { c: '🎉', k: 'party' },
-  { c: '🎊', k: 'party' }, { c: '🎀', k: 'ribbon' }, { c: '🎁', k: 'gift' },
-  { c: '🎫', k: 'ticket' }, { c: '🏆', k: 'trophy' }, { c: '🥇', k: 'medal' },
-  { c: '⚽', k: 'soccer ball' }, { c: '🏀', k: 'basketball' }, { c: '🏈', k: 'football' },
-  { c: '🎮', k: 'game' }, { c: '🕹️', k: 'joystick' }, { c: '🎲', k: 'dice' },
-  { c: '💎', k: 'gem' }, { c: '💍', k: 'ring' }, { c: '💡', k: 'bulb light' },
-  { c: '💻', k: 'laptop' }, { c: '📱', k: 'mobile phone' }, { c: '🔒', k: 'lock' },
-  { c: '🔑', k: 'key' }, { c: '⚙️', k: 'gear' }, { c: '🌈', k: 'rainbow' },
-  { c: '☁️', k: 'cloud' }, { c: '☀️', k: 'sun' }, { c: '🌙', k: 'moon' },
-  { c: '⚡', k: 'bolt' }, { c: '❄️', k: 'snow' }, { c: '🌊', k: 'wave' },
-  { c: '✅', k: 'check' }, { c: '❌', k: 'cross' }, { c: '⚠️', k: 'warning' },
-  { c: '🚀', k: 'rocket' }, { c: '💯', k: 'hundred' }
-];
-
-function generateDeterministicName(pk: string): string {
-  const adjectives = ['Cool', 'Swift', 'Bright', 'Quiet', 'Digital', 'Neon', 'Lunar', 'Solar', 'Cyber', 'Zen'];
-  const nouns = ['Echo', 'Bot', 'Node', 'Pulse', 'Wave', 'Link', 'Spark', 'Flow', 'Core', 'Mind'];
-  
-  // Use first 4 bytes of hex string for simple hash
-  const hash = parseInt(pk.substring(0, 8), 16);
-  const adj = adjectives[hash % adjectives.length];
-  const noun = nouns[(hash >> 8) % nouns.length];
-  const num = hash % 1000;
-  
-  return `${adj}${noun}${num}`;
-}
-
-function generateDeterministicProfile(pk: string): ProfileInfo {
-  const name = generateDeterministicName(pk);
-  return {
-    name,
-    about: `Automated Nostr bot. Identity: ${nip19.npubEncode(pk).substring(0, 12)}...`,
-    picture: `https://api.dicebear.com/7.x/bottts/svg?seed=${pk}`,
-    nip05: ''
-  };
-}
-
-const WAIFU_AVATARS = [
-  'https://npub1p2pec23pht20myk0wdaepk0l89jk230c9twzd0v5wl9ftpsm28gs9u7wur.blossom.band/8908b4bcdf15d90326c62ef1e1e474f0704f685efff5024a8a05ee02f38c948c.jpg',
-  'https://npub1rvjjct00fjgdrusc0ugy4yrdxlekmyyd34al5vmykj588fn6t2rsqkyq8m.blossom.band/0619b349bb1d042d1bdc503b753055520d08c921b00d722520ebee384dabe9ec.jpg',
-  'https://npub1g0k5sv98pqdyqna7rptua07c5jhcfq3tzmvvag74q3lkj7zdwq2qadt8z5.blossom.band/293d22f0570cc1d8b67d319d4af0f28e64765d47aef458b8fda83cd6bfa30732.jpg',
-  'https://npub1tdxp7wcmkrgn3s3pfq3fp935r59mv67vfwxws0ddveqqtz5ph0tsy6cw5u.blossom.band/678b3d6aec4a6995fe594bcb8d64fe4c7ac4f2c78c6bf4a7032ea16c727b6d59.jpg',
-  'https://npub1lrmm2vmfxkyrjy4cpzpeakycnvq8n2hc5lc90kuk73fjdue467pqc4sqs3.blossom.band/d1c0ac5f70c2bec3e094a6ad0b03cfb474cab2ccc42da9740e0fe52e41f06ef6.jpg',
-  'https://npub1ayt2ct93e0aafp8yulhhqfux4y9e6n0thnlkyy5meh2eal2zaxwsc33qcz.blossom.band/b574d8cda9b06de0fa59af52d4edfe668440683a1b39cc34284462c620a953de.jpg',
-  'https://npub1vqzapk3zmhmuzugzprjenn6we3hexfp2d7ky9r3wthmknlqh2q9qaa98hj.blossom.band/daa282c2ff6d60d520aa32bcc69dbf2cc0521c25322cbf3bd202044e3bbad005.jpg',
-  'https://npub18354veqjxl5dhdyx6aetdat8hs74d9yhhfucs9asg3l9mh3shjjqq298a9.blossom.band/fc1245e822e8e18abca87b4ebbe55f3c34b3259e4299a1b25538815ce850aab3.jpg',
-  'https://npub1gl3kzc428w8d8pmh80pmk74gjq487y8e2r9vgeccs4pnwlgstt0s407mqr.blossom.band/949cf1777bba14eed6cca93e75b45aa9951177eea31bf4800a8c071b6865c574.jpg',
-  'https://npub10lz69ew2uvpsanelva0mng3qy9g8ncnn0dgd22zeku39789d9zfsj60nvc.blossom.band/7dd84690c7a43ef7c8d3f1eef0782d3560ab81b9d98079eefabbdd33fdd33893.jpg'
-];
-
-const PUBLISH_RELAYS = [
-  'wss://relay.damus.io',
-  'wss://nos.lol',
-  'wss://relay.primal.net',
-  'wss://nostr.mom'
-];
-
-const SEARCH_RELAYS = [
-  'wss://purplepag.es',
-  ...PUBLISH_RELAYS
-];
-
-const KIND_BOT_IDENTITY = 38752;
+// New Imports
+import { 
+  LogEntry, 
+  ProfileInfo, 
+  Identity, 
+  BotSettings, 
+  BotTask, 
+  cn, 
+  BotStats 
+} from './types';
+import { 
+  SUPPORTED_MODELS, 
+  MODEL_PRESETS, 
+  MODEL_HIDDEN_RULES, 
+  MODEL_DEFAULT_PROMPTS,
+  WAIFU_NAMES,
+  WAIFU_AVATARS,
+  PUBLISH_RELAYS,
+  SEARCH_RELAYS,
+  KIND_BOT_IDENTITY,
+  DEFAULT_SETTINGS,
+  STORAGE_KEY_CURATOR_PUBKEY,
+  STORAGE_KEY_SAVED_IDENTITIES,
+  STORAGE_KEY_CURRENT_SESSION,
+  STORAGE_KEY_GLOBAL_LIGHTNING_SYNC,
+  STORAGE_KEY_DEVICE_ID,
+  STORAGE_KEY_LAST_SYNC,
+  STORAGE_KEY_ACTIVE_NSEC,
+  INITIAL_STATS,
+  POPULAR_EMOJIS,
+  EMOJI_DATA
+} from './constants';
+import { useAppStore } from './hooks/useAppStore';
+import { LogTimeline } from './components/LogTimeline';
+import { BotCard } from './components/BotCard';
 
 // --- Helpers ---
 
@@ -456,63 +92,43 @@ function generateWaifuProfile(): ProfileInfo {
   };
 }
 
-const DEFAULT_SETTINGS: BotSettings = {
-  minDelay: 5,
-  maxDelay: 30,
-  targetNpub: '',
-  targetName: '',
-  messages: [],
-  profile: {
-    name: 'Echo Bot',
-    about: 'I am a simple echo bot. Friendly, concise, and helpful!',
-    picture: 'https://api.dicebear.com/7.x/bottts/svg?seed=echobot',
-    nip05: ''
-  },
-  reactToNotes: false,
-  reactionEmojis: DEFAULT_REACTION_EMOJIS,
-  repostNotes: false,
-  repostChance: 0.25,
-  autoFollowBack: false,
-  useAI: false,
-  aiSystemPrompt: MODEL_DEFAULT_PROMPTS[SUPPORTED_MODELS[0].id].neutral,
-  modelId: SUPPORTED_MODELS[0].id,
-  ...MODEL_PRESETS[SUPPORTED_MODELS[0].id]['Balanced Chat'] as any,
-  proactive: {
-    enabled: false,
-    interval: 240, // 4 hours
-    inspiration: 'target',
-    replyToMentions: true,
-    replyProbability: 0.5,
-    aiPostPrompt: 'Write a short, engaging status update about your current thoughts. Be concise and stay in character.'
-  }
-};
-
-// --- Constants ---
-
-const STORAGE_KEY_ACTIVE_NSEC = 'echobot_active_nsec';
-const STORAGE_KEY_SAVED_IDENTITIES = 'echobot_saved_identities';
-const STORAGE_KEY_CURRENT_SESSION = 'echobot_current_session';
-const STORAGE_KEY_CURATOR_PUBKEY = 'echobot_curator_pubkey';
-const STORAGE_KEY_GLOBAL_LIGHTNING_SYNC = 'echobot_global_lightning_sync';
-const STORAGE_KEY_DEVICE_ID = 'echobot_device_id';
-const STORAGE_KEY_LAST_SYNC = 'echobot_last_sync';
-
 // --- Components ---
 
 export default function App() {
-  // State
+  // Store & Hooks
+  const { state, addLog, clearLogs, updateStats, setIdentityStats, resetStats } = useAppStore();
+  const { logs, sessionStats, identityStats } = state;
+
+  const deviceId = useMemo(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_DEVICE_ID);
+    if (saved) return saved;
+    const newId = crypto.randomUUID();
+    localStorage.setItem(STORAGE_KEY_DEVICE_ID, newId);
+    return newId;
+  }, []);
+
+  // Refs
+  const poolRef = useRef<SimplePool | null>(null);
+  const subscriptionsRef = useRef<Map<string, any[]>>(new Map());
+  const timeoutRefs = useRef<NodeJS.Timeout[]>([]);
+  const taskQueueRef = useRef<BotTask[]>([]);
+  const isProcessingQueueRef = useRef(false);
+  const isInitialMountIdentities = useRef(true);
+  const isInitialMountSettings = useRef(true);
+
+  // UI State
   const [runningIdentityIds, setRunningIdentityIds] = useState<Set<string>>(new Set());
-  const [sessionStats, setSessionStats] = useState<Record<string, { replies: number, reactions: number, reposts: number }>>({});
   const isRunning = (id: string) => runningIdentityIds.has(id);
   const isAnyBotRunning = runningIdentityIds.size > 0;
+  
   const [userPubkey, setUserPubkey] = useState<string | null>(null);
   const [curatorProfile, setCuratorProfile] = useState<ProfileInfo | null>(null);
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [onboardingStep, setOnboardingStep] = useState(1);
   const [communityPersonas, setCommunityPersonas] = useState<{ id: string; author: string; settings: BotSettings; event: any }[]>([]);
   const [communityProfiles, setCommunityProfiles] = useState<Record<string, ProfileInfo>>({});
   const [personaVotes, setPersonaVotes] = useState<Record<string, { up: number, down: number, userVote?: string, userReactionId?: string }>>({});
+  
   const [showZapDialog, setShowZapDialog] = useState(false);
   const [showZapSuccess, setShowZapSuccess] = useState(false);
   const [zapData, setZapData] = useState<{ 
@@ -524,27 +140,15 @@ export default function App() {
     isPaying?: boolean;
     error?: string;
   } | null>(null);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+
   const [isSyncing, setIsSyncing] = useState(false);
   const [showSyncCheck, setShowSyncCheck] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<number>(() => {
     const saved = localStorage.getItem(STORAGE_KEY_LAST_SYNC);
     return saved ? parseInt(saved) : 0;
   });
-  const [deviceId] = useState(() => {
-    const saved = localStorage.getItem(STORAGE_KEY_DEVICE_ID);
-    if (saved) return saved;
-    const newId = crypto.randomUUID();
-    localStorage.setItem(STORAGE_KEY_DEVICE_ID, newId);
-    return newId;
-  });
+
   const [isVerbose, setIsVerbose] = useState(false);
-  const [lastNormalProfile, setLastNormalProfile] = useState<ProfileInfo | null>({
-    name: 'Echo Bot',
-    about: 'I am a simple echo bot.',
-    picture: 'https://api.dicebear.com/7.x/bottts/svg?seed=echo',
-    nip05: ''
-  });
   const [settings, setSettings] = useState<BotSettings>(DEFAULT_SETTINGS);
 
   const [currentIdentity, setCurrentIdentity] = useState<{ sk: Uint8Array; pk: string } | null>(null);
@@ -558,14 +162,12 @@ export default function App() {
   });
   const [rightTab, setRightTab] = useState<'timeline' | 'persona'>('timeline');
   const [personaSubTab, setPersonaSubTab] = useState<'profile' | 'prompt' | 'tuning' | 'behavior' | 'proactive'>('profile');
-  const [proactiveSubTab, setProactiveSubTab] = useState<'config' | 'schedule'>('config');
-  const [showIdentityManager, setShowIdentityManager] = useState(false);
   const [showAddIdentityDialog, setShowAddIdentityDialog] = useState(false);
   const [showEmojiPickerDialog, setShowEmojiPickerDialog] = useState(false);
-  const [showAdvancedAi, setShowAdvancedAi] = useState(false);
   const [emojiSearchQuery, setEmojiSearchQuery] = useState('');
   const [savedIdentities, setSavedIdentities] = useState<Identity[]>([]);
   const [activeIdentityId, setActiveIdentityId] = useState<string | null>(null);
+
   const [targetFollows, setTargetFollows] = useState<string[]>([]);
 
   // AI Brain State
@@ -577,10 +179,115 @@ export default function App() {
   const aiResolveRef = useRef<((value: string) => void) | null>(null);
   const conversationHistoryRef = useRef<Map<string, { role: string; content: string }[]>>(new Map());
   const processedEventsRef = useRef(new Set<string>());
+  
   const [playgroundMessages, setPlaygroundMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
   const [isPlaygroundThinking, setIsPlaygroundThinking] = useState(false);
   const [playgroundInput, setPlaygroundInput] = useState('');
   const playgroundScrollRef = useRef<HTMLDivElement>(null);
+
+  // Event Batching Ref
+  const eventBatchRef = useRef<{ id: string, update: Partial<Record<keyof BotStats, number>> }[]>([]);
+
+  // Periodically flush stat batches to the store (Phase 3 Part 1)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (eventBatchRef.current.length > 0) {
+        // Aggregate batches by identity ID
+        const aggregates: Record<string, Partial<Record<keyof BotStats, number>>> = {};
+        
+        eventBatchRef.current.forEach(({ id, update }) => {
+          if (!aggregates[id]) aggregates[id] = {};
+          Object.entries(update).forEach(([key, val]) => {
+            const k = key as keyof BotStats;
+            aggregates[id][k] = (Number(aggregates[id][k]) || 0) + (Number(val) || 0);
+          });
+        });
+
+        Object.entries(aggregates).forEach(([id, update]) => {
+          updateStats(id, update);
+        });
+
+        eventBatchRef.current = [];
+      }
+    }, 500); // Batch every 500ms
+
+    return () => clearInterval(interval);
+  }, [updateStats]);
+
+  const addStatToBatch = useCallback((id: string, update: Partial<Record<keyof BotStats, number>>) => {
+    eventBatchRef.current.push({ id, update });
+  }, []);
+
+  // AI Brain Management
+  useEffect(() => {
+    // 1. If AI is disabled, ensure worker is dead and status is idle
+    if (!settings.useAI) {
+      if (aiStatus !== 'idle') setAiStatus('idle');
+      setAiProgress(0);
+      if (aiWorkerRef.current) {
+        aiWorkerRef.current.terminate();
+        aiWorkerRef.current = null;
+      }
+      return;
+    }
+
+    // 2. Trigger loading if enabled but idle/error
+    if (aiStatus === 'idle' || aiStatus === 'error') {
+      setAiStatus('loading');
+      return;
+    }
+
+    // 3. Worker Execution (Only in 'loading' state)
+    if (aiStatus !== 'loading') return;
+
+    // Safety: terminate any ghost worker
+    if (aiWorkerRef.current) {
+      aiWorkerRef.current.terminate();
+    }
+
+    const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+
+    worker.onmessage = (e) => {
+      const { type, data } = e.data;
+      if (type === 'progress') {
+        if (data.file) {
+          const fileName = data.file.split('/').pop();
+          setCurrentLoadingFile(fileName);
+        }
+        const isModelFile = data.file && (data.file.includes('.onnx') || data.file.includes('onnx_'));
+        const isMainDownload = data.status === 'progress' && data.progress !== undefined;
+        if (isMainDownload && isModelFile) {
+          setAiProgress(data.progress);
+        } else if (data.status === 'initiate') {
+          addLog(`Starting download: ${data.file.split('/').pop()}`, 'info');
+        }
+      } else if (type === 'ready') {
+        setAiStatus('ready');
+        setAiProgress(100);
+        setCurrentLoadingFile('');
+        addLog(`AI Brain (${settings.modelId.split('/').pop()}) is ready!`, 'success');
+      } else if (type === 'result') {
+        if (aiResolveRef.current) {
+          aiResolveRef.current(data);
+          aiResolveRef.current = null;
+        }
+      } else if (type === 'error') {
+        setAiStatus('error');
+        setAiErrorMessage(data);
+        addLog(`AI Brain Error: ${data}`, 'error');
+      } else if (type === 'status') {
+        if (data.includes('Initializing')) {
+          setCurrentLoadingFile('Engine...');
+        }
+        addLog(data, 'info');
+      }
+    };
+
+    worker.postMessage({ type: 'init', data: { model_id: settings.modelId } });
+    aiWorkerRef.current = worker;
+
+    // If model changes while loading, this effect will re-run and terminate the current worker
+  }, [aiStatus, settings.useAI, settings.modelId, addLog]);
 
   // --- Bot Logic Helpers ---
 
@@ -796,108 +503,6 @@ export default function App() {
     return '';
   }
 
-  const poolRef = useRef<SimplePool | null>(null);
-  const subscriptionsRef = useRef<Map<string, any[]>>(new Map());
-  const timeoutRefs = useRef<NodeJS.Timeout[]>([]);
-  const taskQueueRef = useRef<BotTask[]>([]);
-  const isProcessingQueueRef = useRef(false);
-  // Log helper
-  const addLog = useCallback((message: string, type: LogEntry['type'] = 'info', pubkey?: string) => {
-    setLogs(prev => [{
-      id: Math.random().toString(36).substring(7),
-      timestamp: Date.now(),
-      type,
-      message,
-      pubkey
-    }, ...prev].slice(0, 100));
-  }, []);
-
-  const isInitialMountSettings = useRef(true);
-  const isInitialMountIdentities = useRef(true);
-
-  // 1. Authority: Single source of truth for killing/resetting the engine
-  useEffect(() => {
-    if (!isInitialMountSettings.current || !settings.useAI) {
-      setAiStatus('idle');
-      setAiProgress(0);
-      setAiErrorMessage(null);
-      if (aiWorkerRef.current) {
-        aiWorkerRef.current.terminate();
-        aiWorkerRef.current = null;
-      }
-    }
-    // Set mount flag to false after first check
-    if (isInitialMountSettings.current) isInitialMountSettings.current = false;
-  }, [settings.modelId, settings.useAI]);
-
-  // 2. Trigger: Automatically move to loading state when idle and enabled
-  useEffect(() => {
-    if (settings.useAI && (aiStatus === 'idle' || aiStatus === 'error')) {
-      setAiStatus('loading');
-    }
-  }, [settings.useAI, aiStatus]);
-
-  // 3. Execution: The actual worker lifecycle
-  useEffect(() => {
-    if (aiStatus !== 'loading') return;
-
-    // Terminate existing worker just in case Tier 1 hasn't finished
-    if (aiWorkerRef.current) {
-      aiWorkerRef.current.terminate();
-    }
-
-    const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-
-    worker.onmessage = (e) => {
-      const { type, data } = e.data;
-      if (type === 'progress') {
-        if (data.file) {
-          const fileName = data.file.split('/').pop();
-          setCurrentLoadingFile(fileName);
-        }
-        const isModelFile = data.file && (data.file.includes('.onnx') || data.file.includes('onnx_'));
-        const isMainDownload = data.status === 'progress' && data.progress !== undefined;
-        if (isMainDownload && isModelFile) {
-          setAiProgress(data.progress);
-        } else if (data.status === 'initiate') {
-          addLog(`Starting download: ${data.file.split('/').pop()}`, 'info');
-        }
-      } else if (type === 'ready') {
-        setAiStatus('ready');
-        setAiProgress(100);
-        setCurrentLoadingFile('');
-        addLog(`AI Brain (${settings.modelId.split('/').pop()}) is ready!`, 'success');
-      } else if (type === 'result') {
-        if (aiResolveRef.current) {
-          aiResolveRef.current(data);
-          aiResolveRef.current = null;
-        }
-      } else if (type === 'error') {
-        setAiStatus('error');
-        setAiErrorMessage(data);
-        addLog(`AI Brain Error: ${data}`, 'error');
-      } else if (type === 'status') {
-        if (data.includes('Initializing')) {
-          setCurrentLoadingFile('Engine...');
-        }
-        addLog(data, 'info');
-      }
-    };
-
-    worker.postMessage({ type: 'init', data: { model_id: settings.modelId } });
-    aiWorkerRef.current = worker;
-
-    // Note: We DO NOT terminate in cleanup here. 
-    // Tier 1 handles termination based on model change.
-  }, [aiStatus]); // Depend on status to trigger the process  // Autoscroll Playground
-  useEffect(() => {
-    if (playgroundScrollRef.current) {
-      playgroundScrollRef.current.scrollTo({
-        top: playgroundScrollRef.current.scrollHeight,
-        behavior: 'smooth'
-      });
-    }
-  }, [playgroundMessages, isPlaygroundThinking]);
 
   // Initialize identity and settings on load
   useEffect(() => {
@@ -1015,22 +620,23 @@ export default function App() {
         setActiveIdentityId(parsed.id || null);
         addLog(`Restored session: ${parsed.settings.profile.name}`, 'info');
         return; // Session restored, we are done
-        } catch (e) {
+      } catch (e) {
         console.error('Failed to restore session:', e);
-        }
-        }
+      }
+    }
 
-        // 3. Fallback: Load first saved identity or create default
-        if (loadedIdentities.length > 0) {
-        const first = loadedIdentities[0];
-        setSettings(first.settings);
-        const { data } = nip19.decode(first.nsec);
-        const sk = data as any;
-        const pk = getPublicKey(sk);
-        setCurrentIdentity({ sk, pk });
-        setActiveIdentityId(first.id);
-        addLog(`Loaded identity: ${first.settings.profile.name}`, 'info');
-        } else {      setShowOnboarding(true);
+    // 3. Fallback: Load first saved identity or create default
+    if (loadedIdentities.length > 0) {
+      const first = loadedIdentities[0];
+      setSettings(first.settings);
+      const { data } = nip19.decode(first.nsec);
+      const sk = data as any;
+      const pk = getPublicKey(sk);
+      setCurrentIdentity({ sk, pk });
+      setActiveIdentityId(first.id);
+      addLog(`Loaded identity: ${first.settings.profile.name}`, 'info');
+    } else {
+      setShowOnboarding(true);
       addLog('Welcome to EchoBot! Let\'s set up your first autonomous AI.', 'info');
     }
   }, []);
@@ -1767,57 +1373,12 @@ export default function App() {
     }
   };
 
-  const INITIAL_STATS: BotStats = {
-    repliesSent: {},
-    reactionsSent: {},
-    repostsSent: {},
-    proactiveNotesSent: {},
-    repliesReceived: {},
-    reactionsReceived: {}
-  };
-
   const sumStats = useCallback((statsMap?: Record<string, number>) => {
     if (!statsMap) return 0;
-    return Object.values(statsMap).reduce((a, b) => a + b, 0);
+    return Object.values(statsMap).reduce((a, b) => (Number(a) || 0) + (Number(b) || 0), 0);
   }, []);
 
-  const updateIdentityStats = useCallback((id: string, update: Partial<Record<keyof BotStats, number>>) => {
-    // 1. Update All-Time Stats
-    setSavedIdentities(prev => prev.map(identity => {
-      if (identity.id === id) {
-        const stats = identity.stats || { ...INITIAL_STATS };
-        const newStats = { ...stats };
 
-        Object.entries(update).forEach(([key, value]) => {
-          const k = key as keyof BotStats;
-          const currentMap = { ...(newStats[k] || {}) };
-          currentMap[deviceId] = (currentMap[deviceId] || 0) + (value || 0);
-          newStats[k] = currentMap;
-        });
-
-        return {
-          ...identity,
-          updatedAt: Date.now(),
-          stats: newStats
-        };
-      }
-      return identity;
-    }));
-
-    // 2. Update Session Stats
-    setSessionStats(prev => {
-      const current = prev[id] || { replies: 0, reactions: 0, reposts: 0, proactive: 0 };
-      return {
-        ...prev,
-        [id]: {
-          replies: current.replies + (update.repliesSent || 0),
-          reactions: current.reactions + (update.reactionsSent || 0),
-          reposts: current.reposts + (update.repostsSent || 0),
-          proactive: current.proactive + (update.proactiveNotesSent || 0)
-        }
-      };
-    });
-  }, [deviceId, INITIAL_STATS]);
   const saveIdentity = async (name: string) => {
     if (!currentIdentity) return;
     const nsec = nip19.nsecEncode(currentIdentity.sk);
@@ -1856,7 +1417,7 @@ export default function App() {
 
       setActiveIdentityId(identity.id);
       addLog(`Loaded identity: ${identity.settings.profile.name}`, 'success');
-      setShowIdentityManager(false);
+      setShowManager(false);
 
       // --- NEW: Fetch target profile for UI visibility ---
       if (identity.settings.targetNpub) {
@@ -2019,11 +1580,7 @@ export default function App() {
         next.delete(id);
         return next;
       });
-      setSessionStats(prev => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
+      resetStats(id);
       const subs = subscriptionsRef.current.get(id);
       if (subs) {
         subs.forEach(sub => sub.close());
@@ -2033,7 +1590,7 @@ export default function App() {
     } else {
       // Stop all
       setRunningIdentityIds(new Set());
-      setSessionStats({});
+      resetStats();
       isProcessingQueueRef.current = false;
       taskQueueRef.current = [];
       subscriptionsRef.current.forEach(subs => subs.forEach(sub => sub.close()));
@@ -2042,7 +1599,7 @@ export default function App() {
       timeoutRefs.current = [];
       addLog('All bots stopped.', 'warning');
     }
-  }, [addLog]);
+  }, [addLog, resetStats]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -2138,7 +1695,7 @@ export default function App() {
     const pk = getPublicKey(sk as any);
 
     setRunningIdentityIds(prev => new Set(prev).add(identity.id));
-    setSessionStats(prev => ({ ...prev, [identity.id]: { replies: 0, reactions: 0, reposts: 0 } }));
+    addStatToBatch(identity.id, { repliesSent: 0 }); // Initialize session entry
     addLog(`Starting bot: ${identity.name}${isProactiveOnly ? ' (Proactive Only)' : ''}`, 'info');
 
     if (!poolRef.current) {
@@ -2259,7 +1816,7 @@ export default function App() {
 
             if (successCount > 0) {
               addLog(`[${identity.name}] Replied: "${message.substring(0, 30)}..."`, 'success');
-              updateIdentityStats(identity.id, { repliesSent: 1 });
+              addStatToBatch(identity.id, { repliesSent: 1 });
             }
           } catch (e) {
             addLog(`[${identity.name}] Failed to broadcast reply.`, 'error');
@@ -2304,7 +1861,7 @@ export default function App() {
             const results = await Promise.allSettled(pubs);
             if (results.some(r => r.status === 'fulfilled')) {
               addLog(`[${identity.name}] Reacted with ${emoji}`, 'success');
-              updateIdentityStats(identity.id, { reactionsSent: 1 });
+              addStatToBatch(identity.id, { reactionsSent: 1 });
             }
           } catch (e) {}
         }
@@ -2343,7 +1900,7 @@ export default function App() {
             const results = await Promise.allSettled(pubs);
             if (results.some(r => r.status === 'fulfilled')) {
               addLog(`[${identity.name}] Reposted note.`, 'success');
-              updateIdentityStats(identity.id, { repostsSent: 1 });
+              addStatToBatch(identity.id, { repostsSent: 1 });
             }
           } catch (e) {}
         }
@@ -2398,12 +1955,12 @@ export default function App() {
       if (mentionsSelf) {
         if (event.kind === 1) {
           addLog(`[${identity.name}] New mention from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey);
-          updateIdentityStats(identity.id, { repliesReceived: 1 });
+          addStatToBatch(identity.id, { repliesReceived: 1 });
           if (identity.settings.autoFollowBack) scheduleFollow(event.pubkey, targetRelays);
         }
         if (event.kind === 7) {
           addLog(`[${identity.name}] New reaction from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey);
-          updateIdentityStats(identity.id, { reactionsReceived: 1 });
+          addStatToBatch(identity.id, { reactionsReceived: 1 });
           if (identity.settings.autoFollowBack) scheduleFollow(event.pubkey, targetRelays);
         }
       }
@@ -2495,7 +2052,7 @@ export default function App() {
           await Promise.allSettled(pubs);
 
           addLog(`[${identity.name}] Posted original note: "${content.substring(0, 30)}..."`, 'success');
-          updateIdentityStats(identity.id, { proactiveNotesSent: 1 });
+          addStatToBatch(identity.id, { proactiveNotesSent: 1 });
           
           // Calculate next fuzzy post time (interval ± 15% jitter)
           const baseMins = identity.settings.proactive.interval;
@@ -2616,7 +2173,7 @@ export default function App() {
           {/* Background Swarm Status */}
           <AnimatePresence>
             {isAnyBotRunning && (
-              <motion.section 
+              <motion.section
                 initial={{ opacity: 0, height: 0, y: 20 }}
                 animate={{ opacity: 1, height: 'auto', y: 0 }}
                 exit={{ opacity: 0, height: 0, y: 20 }}
@@ -2633,88 +2190,19 @@ export default function App() {
                 </div>
 
                 <div className="space-y-1.5">
-                  {savedIdentities.filter(id => isRunning(id.id)).map(bot => {
-                    const targetPubkey = (() => {
-                      try {
-                        const decoded = nip19.decode(bot.settings.targetNpub) as any;
-                        return decoded.type === 'npub' ? (decoded.data as string) : '';
-                      } catch (e) { return ''; }
-                    })();
-                    const targetProfile = targetPubkey ? communityProfiles[targetPubkey] : null;
-
-                    return (
-                      <div key={bot.id} className="p-2.5 bg-black/40 border border-emerald-500/10 rounded-xl group/bot flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <div className="relative shrink-0">
-                            <img 
-                              src={bot.settings.profile.picture} 
-                              alt="" 
-                              className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700/50 object-cover"
-                              crossOrigin="anonymous"
-                            />
-                            <div className="absolute -bottom-1 -right-1">
-                              {targetPubkey ? (
-                                <img 
-                                  src={targetProfile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${targetPubkey}`} 
-                                  alt="" 
-                                  className="w-4 h-4 rounded-full bg-zinc-900 border border-black object-cover shadow-lg"
-                                  crossOrigin="anonymous"
-                                />
-                              ) : (
-                                <div className="w-4 h-4 rounded-full bg-zinc-900 border border-black flex items-center justify-center shadow-lg">
-                                  <Activity className="w-2.5 h-2.5 text-emerald-500" />
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-bold text-white truncate leading-tight">{bot.name}</p>
-                            <p className="text-[10px] text-zinc-500 truncate font-bold flex items-center gap-1 leading-tight">
-                              {targetPubkey ? (
-                                <>
-                                  <span className="opacity-50 uppercase text-[8px] tracking-tighter">vs</span>
-                                  <span className="text-emerald-500/80">{bot.settings.targetName || targetProfile?.name || bot.settings.targetNpub.substring(0, 8)}</span>
-                                </>
-                              ) : (
-                                <span className="text-emerald-500/60 uppercase text-[8px] tracking-widest">Self-Directed</span>
-                              )}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-4 shrink-0 px-3 py-1 bg-zinc-900/50 rounded-lg border border-zinc-800/50">
-                          <div className="flex items-center gap-1.5" title="Original Notes">
-                            <FileText className="w-3 h-3 text-blue-500/60" />
-                            <span className="text-xs font-mono font-bold text-zinc-300">{sessionStats[bot.id]?.proactive || 0}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5" title="Replies">
-                            <MessageSquare className="w-3 h-3 text-emerald-500/60" />
-                            <span className="text-xs font-mono font-bold text-zinc-300">{sessionStats[bot.id]?.replies || 0}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5" title="Reactions">
-                            <Heart className="w-3 h-3 text-pink-500/60" />
-                            <span className="text-xs font-mono font-bold text-zinc-300">{sessionStats[bot.id]?.reactions || 0}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5" title="Reposts">
-                            <RefreshCw className="w-3 h-3 text-purple-500/60" />
-                            <span className="text-xs font-mono font-bold text-zinc-300">{sessionStats[bot.id]?.reposts || 0}</span>
-                          </div>
-                        </div>
-
-                        <button 
-                          onClick={() => stopBot(bot.id)}
-                          className="p-2 hover:bg-red-500/20 text-zinc-700 hover:text-red-400 transition-all rounded-lg shrink-0 group-hover/bot:bg-zinc-800/50"
-                          title="Stop this bot"
-                        >
-                          <Square className="w-3.5 h-3.5 fill-current" />
-                        </button>
-                      </div>
-                    );
-                  })}
+                  {savedIdentities.filter(id => isRunning(id.id)).map(bot => (
+                    <BotCard 
+                      key={bot.id} 
+                      bot={bot} 
+                      isRunning={true} 
+                      onStop={stopBot} 
+                      sessionStats={sessionStats[bot.id]} 
+                      communityProfiles={communityProfiles} 
+                    />
+                  ))}
                 </div>
               </motion.section>
-            )}
-          </AnimatePresence>
+            )}          </AnimatePresence>
 
           {/* Identity Info */}
           <section className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-6 space-y-4 relative overflow-hidden group/card">
@@ -2872,7 +2360,7 @@ export default function App() {
           )}
 
           {/* Active Relays */}
-          {isRunning && activeRelays.length > 0 && (
+          {activeRelays.length > 0 && (
             <section className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-6 space-y-4">
               <div className="flex items-center gap-2 text-zinc-400 mb-2">
                 <RefreshCw className="w-4 h-4" />
@@ -2899,7 +2387,7 @@ export default function App() {
               placeholder="npub1..."
               value={settings.targetNpub}
               onChange={(e) => setSettings(s => ({ ...s, targetNpub: e.target.value }))}
-              disabled={isRunning}
+              disabled={activeIdentityId ? isRunning(activeIdentityId) : false}
               className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-emerald-500/50 transition-colors disabled:opacity-50"
             />
             <p className="text-xs text-zinc-500 italic">
@@ -2981,91 +2469,14 @@ export default function App() {
             </div>
 
             <div className="flex-1 flex flex-col min-h-0">
-              {rightTab === 'timeline' ? (                <>
-                  <div className="p-4 border-b border-zinc-800/30 flex items-center justify-between bg-black/20">
-                    <div className="flex items-center gap-4">
-                      <label className="flex items-center gap-2 cursor-pointer group">
-                        <div className="relative">
-                          <input 
-                            type="checkbox" 
-                            className="sr-only" 
-                            checked={isVerbose}
-                            onChange={(e) => setIsVerbose(e.target.checked)}
-                          />
-                          <div className={cn(
-                            "w-6 h-3 rounded-full transition-colors",
-                            isVerbose ? "bg-emerald-500/50" : "bg-zinc-700"
-                          )}></div>
-                          <div className={cn(
-                            "absolute -left-1 -top-1 w-5 h-5 rounded-full transition-transform shadow-lg",
-                            isVerbose ? "translate-x-3 bg-emerald-400" : "translate-x-0 bg-zinc-500"
-                          )}></div>
-                        </div>
-                        <span className="text-xs text-zinc-500 uppercase tracking-widest font-bold group-hover:text-zinc-300 transition-colors">Verbose</span>
-                      </label>
-                    </div>
-                    <button 
-                      onClick={() => setLogs([])}
-                      className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors uppercase tracking-widest font-bold flex items-center gap-1.5"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      Clear
-                    </button>
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-[11px] custom-scrollbar">
-                    <AnimatePresence initial={false}>
-                      {logs
-                        .filter(log => isVerbose || log.type !== 'info')
-                        .map((log) => (
-                        <motion.div
-                          key={log.id}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          className={cn(
-                            "flex items-center gap-3 p-2 rounded-lg border transition-all group",
-                            log.type === 'info' && "bg-zinc-800/10 border-zinc-800/30 text-zinc-500",
-                            log.type === 'success' && "bg-emerald-500/5 border-emerald-500/10 text-emerald-400/90",
-                            log.type === 'warning' && "bg-amber-500/5 border-amber-500/10 text-amber-400/90",
-                            log.type === 'error' && "bg-red-500/5 border-red-500/10 text-red-400/90"
-                          )}
-                        >
-                          <span className="text-[10px] font-mono font-bold opacity-40 shrink-0 min-w-[55px]">
-                            {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
-                          </span>
-
-                          {log.pubkey && (
-                            <div className="shrink-0 flex items-center gap-2">
-                              <img 
-                                src={communityProfiles[log.pubkey]?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${log.pubkey}`} 
-                                alt="" 
-                                className="w-5 h-5 rounded-full bg-zinc-800 border border-zinc-700/50"
-                                crossOrigin="anonymous"
-                              />
-                              <span className="text-[10px] font-black tracking-tight whitespace-nowrap opacity-80 max-w-[80px] truncate">
-                                {communityProfiles[log.pubkey]?.name || `${nip19.npubEncode(log.pubkey).substring(0, 8)}`}
-                              </span>
-                            </div>
-                          )}
-
-                          <div className="flex-1 min-w-0 flex items-center gap-2">
-                            <span className="text-[11px] truncate">{log.message}</span>
-                          </div>
-
-                          <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {log.type === 'success' && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
-                            {log.type === 'error' && <AlertCircle className="w-3 h-3 text-red-500" />}
-                          </div>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
-                    {logs.length === 0 && (
-                      <div className="h-full flex flex-col items-center justify-center text-zinc-700 space-y-2 opacity-50">
-                        <Activity className="w-8 h-8" />
-                        <p className="italic text-sm text-center">Timeline is empty. Start the bot to begin monitoring.</p>
-                      </div>
-                    )}
-                  </div>
-                </>
+              {rightTab === 'timeline' ? (
+                <LogTimeline 
+                  logs={logs}
+                  isVerbose={isVerbose}
+                  setIsVerbose={setIsVerbose}
+                  onClear={clearLogs}
+                  communityProfiles={communityProfiles}
+                />
               ) : (
                 <div className="flex-1 flex flex-col overflow-hidden">
                   <div className="flex gap-1 p-2 bg-black/20 border-b border-zinc-800/30">
@@ -4277,7 +3688,7 @@ export default function App() {
                                       <button 
                                         onClick={() => {
                                           setSettings(s => ({ ...s, modelId: model.id, useAI: true }));
-                                          if (aiStatus !== 'idle') setAiStatus('idle'); // Force reset to trigger load
+                                          setAiStatus('loading');
                                         }}
                                         className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors border border-zinc-700"
                                       >
