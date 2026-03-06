@@ -3335,7 +3335,7 @@ export default function App() {
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
-                  <span className="text-[10px] text-zinc-700 font-bold uppercase tracking-widest">v0.1.2</span>
+                  <span className="text-[10px] text-zinc-700 font-bold uppercase tracking-widest">v0.2.0</span>
                   <p className="text-[10px] text-zinc-500">Press ESC or click close to return</p>
                 </div>
               </div>

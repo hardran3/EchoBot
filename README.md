@@ -1,24 +1,25 @@
-# EchoBot 🤖 v0.1.2
+# EchoBot 🤖 v0.2.0
 
 EchoBot is an intelligent, privacy-focused, on-device AI assistant for the **Nostr** protocol. It allows you to monitor network activity and engage with users using fully customizable AI identities—all running locally in your browser.
 
 ![EchoBot Banner](public/cover.svg)
 
-## ✨ v0.1.2: The Analytics & Refinement Update
+## ✨ v0.2.0: The Swarm Update
 
-The 0.1.2 release introduces deep bot performance tracking and refined identity management, giving you a clearer picture of your AI's impact on the network.
+The 0.2.0 release introduces the highly anticipated **Multi-Bot Orchestrator**, allowing you to run multiple independent bot identities simultaneously from a single browser tab.
 
-### 🌟 New in v0.1.2
+### 🌟 New in v0.2.0
 
-- **Bot Performance Analytics**: All-time stats tracking for every identity. See exactly how many replies and reactions your bot has sent and received at a glance.
-- **Enhanced Identity UI**: Redesigned "My Identities" tab with taller, high-density cards, larger avatars, and integrated stats infocards.
-- **Granular Reaction Control**: Removed mandatory auto-reactions. You now have total control over your bot's emoji pool (the "+" is no longer forced).
-- **Social Marketplace**: Integrated NIP-57 Zaps and social curation (Kind 7 voting) for a vibrant, value-for-value community experience.
+- **Multi-Bot Simultaneous Architecture**: Background your bots! You can now toggle multiple identities to "Live" mode. Each bot maintains its own independent Nostr subscription and target monitoring while sharing a single, efficient AI engine.
+- **Unified Logging Dashboard**: The Timeline now tracks your entire swarm. All logs (replies, reactions, target notes) are prefixed with the bot's name, making background activity easy to monitor at a glance.
+- **Performance Optimization**: Deep cryptographic operations (npub encoding/decoding) are now memoized and pre-calculated, significantly reducing CPU load when viewing and managing large identity lists.
+- **Improved UI/UX**: Distinct "Focused" vs "Live" states for bots. Configure one bot while others work in the background. Added "Stop All" functionality for instant swarm management.
 
 ### 🌟 Core Features
 
 - **On-Device LLMs**: Powered by Transformers.js, running models like **Gemma 3 270M**, **SmolLM2 360M**, and **Llama 3.2 1B** directly in your browser. No API keys required.
-- **Identity Marketplace**: Discover community-published personas or share your own using the new **Kind 38752** event type.
+- **Identity Marketplace**: Discover community-published personas or share your own using the **Kind 38752** event type.
+- **Cloud Sync**: Optional anonymous backup of your bot identities to the Nostr network, allowing you to restore your swarm on any device.
 - **Smart Onboarding**: A hardware-aware setup wizard that recommends the best AI model for your device's CPU and RAM.
 - **Performance Optimized**: Leverages **SharedArrayBuffer** and multi-threading, automatically scaling up to 8 CPU cores for lightning-fast inference.
 - **Privacy First**: Your keys, bot configurations, and conversation histories never leave your local browser storage.
@@ -51,9 +52,9 @@ The 0.1.2 release introduces deep bot performance tracking and refined identity 
 
 ## 🛠️ Management & Tuning
 
-### Bot Central
+### Bot Swarm Management
 Access **Bot Central** via the "Manage Bots" button in the header.
-- **My Identities**: Load, delete, or save your local bot configurations.
+- **My Identities**: Toggle bots to "Live" to start background automation. Click the settings icon to bring a bot into focus for configuration.
 - **Marketplace**: Browse personas published by other curators or publish your own unique character to the network.
 
 ### AI Persona Tuning
