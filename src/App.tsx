@@ -447,7 +447,7 @@ export default function App() {
   ): Promise<string> {
     if (!botSettings.useAI || aiStatus !== 'ready' || !aiWorkerRef.current) {
       if (!isOriginalPost && !content) {
-        addLog('AI Brain is not ready. Skipping reply.', 'warning');
+        addLog(`[${botSettings.profile.name}] AI Brain is not ready. Skipping reply.`, 'warning', undefined, botSettings.profile.name, undefined, undefined, undefined, undefined, identityId);
       }
       return '';
     }
@@ -1492,7 +1492,8 @@ export default function App() {
       return identity;
     }));
     if (activeIdentityId === id) setActiveIdentityId(null);
-    addLog('Identity removed from list.', 'warning');
+    const identity = savedIdentities.find(i => i.id === id);
+    addLog(`Identity removed: ${identity?.name || id.substring(0, 8)}`, 'warning', undefined, identity?.name, undefined, undefined, undefined, undefined, id);
   };
 
   const createNewIdentity = (type: 'waifu' | 'custom') => {
@@ -1617,9 +1618,8 @@ export default function App() {
         subscriptionsRef.current.delete(id);
       }
       const identity = savedIdentities.find(i => i.id === id);
-      addLog(`Bot stopped: ${identity?.name || id.substring(0, 8)}`, 'warning');
-    } else {
-      // Stop all
+      addLog(`${identity?.name || id.substring(0, 8)} Shutting Down`, 'warning', undefined, identity?.name, undefined, undefined, undefined, undefined, id);
+      } else {      // Stop all
       setRunningIdentityIds(new Set());
       resetStats();
       isProcessingQueueRef.current = false;
@@ -1630,7 +1630,7 @@ export default function App() {
       timeoutRefs.current = [];
       addLog('All bots stopped.', 'warning');
     }
-  }, [addLog, resetStats]);
+  }, [addLog, resetStats, savedIdentities]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -1640,7 +1640,7 @@ export default function App() {
         poolRef.current.close(SEARCH_RELAYS);
       }
     };
-  }, [stopBot]);
+  }, []);
 
   const publishRelayList = async (sk: Uint8Array, extraRelays: string[] = []) => {
     if (!poolRef.current) return;
