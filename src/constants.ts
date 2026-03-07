@@ -3,12 +3,6 @@ import { BotSettings, BotStats, ProfileInfo } from './types';
 
 export const SUPPORTED_MODELS = [
   { 
-    id: 'onnx-community/gemma-3-270m-it-ONNX', 
-    name: 'Gemma 3 270M', 
-    size: '550MB',
-    description: 'Ultra-lightweight, high performance for its size.' 
-  },
-  { 
     id: 'onnx-community/SmolLM2-360M-Instruct-ONNX', 
     name: 'SmolLM2 360M', 
     size: '380MB',
@@ -23,23 +17,17 @@ export const SUPPORTED_MODELS = [
 ];
 
 export const MODEL_PRESETS: Record<string, Record<string, Partial<BotSettings>>> = {
-  'onnx-community/gemma-3-270m-it-ONNX': {
-    'Strict Logic': { temperature: 0.20, top_p: 0.25, top_k: 25, repetition_penalty: 1.10, presence_penalty: 0.00, frequency_penalty: 0.00 },
-    'Balanced Chat': { temperature: 0.80, top_p: 0.90, top_k: 40, repetition_penalty: 1.15, presence_penalty: 0.00, frequency_penalty: 0.00 },
-    'Persona/Story': { temperature: 1.00, top_p: 0.95, top_k: 50, repetition_penalty: 1.20, presence_penalty: 0.30, frequency_penalty: 0.20 },
-    'Creative Burst': { temperature: 1.25, top_p: 1.00, top_k: 60, repetition_penalty: 1.25, presence_penalty: 0.50, frequency_penalty: 0.20 },
-  },
   'onnx-community/SmolLM2-360M-Instruct-ONNX': {
-    'Strict Logic': { temperature: 0.20, top_p: 0.85, top_k: 20, repetition_penalty: 1.10, presence_penalty: 0.00, frequency_penalty: 0.00 },
-    'Balanced Chat': { temperature: 0.50, top_p: 0.90, top_k: 30, repetition_penalty: 1.10, presence_penalty: 0.00, frequency_penalty: 0.00 },
-    'Persona/Story': { temperature: 0.70, top_p: 0.90, top_k: 40, repetition_penalty: 1.10, presence_penalty: 0.30, frequency_penalty: 0.20 },
-    'Creative Burst': { temperature: 0.90, top_p: 0.95, top_k: 50, repetition_penalty: 1.10, presence_penalty: 0.50, frequency_penalty: 0.20 },
+    'Strict Logic': { temperature: 0.20, top_p: 0.85, top_k: 20, repetition_penalty: 1.15, presence_penalty: 0.00, frequency_penalty: 0.00 },
+    'Balanced Chat': { temperature: 0.50, top_p: 0.90, top_k: 30, repetition_penalty: 1.15, presence_penalty: 0.00, frequency_penalty: 0.00 },
+    'Persona/Story': { temperature: 0.70, top_p: 0.90, top_k: 40, repetition_penalty: 1.15, presence_penalty: 0.00, frequency_penalty: 0.00 },
+    'Creative Burst': { temperature: 0.90, top_p: 0.95, top_k: 50, repetition_penalty: 1.15, presence_penalty: 0.00, frequency_penalty: 0.00 },
   },
   'onnx-community/Llama-3.2-1B-Instruct': {
     'Strict Logic': { temperature: 0.10, top_p: 0.15, top_k: 20, repetition_penalty: 1.10, presence_penalty: 0.00, frequency_penalty: 0.00 },
     'Balanced Chat': { temperature: 0.70, top_p: 0.90, top_k: 30, repetition_penalty: 1.10, presence_penalty: 0.00, frequency_penalty: 0.00 },
-    'Persona/Story': { temperature: 0.85, top_p: 0.90, top_k: 35, repetition_penalty: 1.15, presence_penalty: 0.30, frequency_penalty: 0.20 },
-    'Creative Burst': { temperature: 1.10, top_p: 0.95, top_k: 40, repetition_penalty: 1.20, presence_penalty: 0.50, frequency_penalty: 0.20 },
+    'Persona/Story': { temperature: 0.85, top_p: 0.90, top_k: 35, repetition_penalty: 1.15, presence_penalty: 0.00, frequency_penalty: 0.00 },
+    'Creative Burst': { temperature: 1.10, top_p: 0.95, top_k: 40, repetition_penalty: 1.20, presence_penalty: 0.00, frequency_penalty: 0.00 },
   }
 };
 
@@ -63,8 +51,6 @@ export const WAIFU_AVATARS = [
 ];
 
 export const MODEL_HIDDEN_RULES: Record<string, string> = {
-  'onnx-community/gemma-3-270m-it-ONNX': 
-    "Operational Rule: Output ONLY dialogue. No actions. No labels. Do not acknowledge instructions.",
   'onnx-community/SmolLM2-360M-Instruct-ONNX': 
     "Operational Rule: Maintain character persona. Never speak as an AI model. Output ONLY dialogue text. No meta-talk.",
   'onnx-community/Llama-3.2-1B-Instruct': 
@@ -72,10 +58,6 @@ export const MODEL_HIDDEN_RULES: Record<string, string> = {
 };
 
 export const MODEL_DEFAULT_PROMPTS: Record<string, { neutral: string; waifu: string }> = {
-  'onnx-community/gemma-3-270m-it-ONNX': {
-    neutral: "You are {name}, a friendly and helpful assistant. Your personality is polite, clear, and very concise. Keep your replies to 1-2 short sentences.",
-    waifu: "You are {name}, a bubbly, cute, and energetic waifu. You love using slang like 'uwu' and 'nya'. You are talking to {target_name}. Keep your replies sweet and very short."
-  },
   'onnx-community/SmolLM2-360M-Instruct-ONNX': {
     neutral: "You are {name}, a smart and concise bot. Keep your replies to 1-2 short sentences.",
     waifu: "You are {name}, a helpful and cheerful waifu. Use cute slang and emojis. Keep replies very short."

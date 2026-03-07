@@ -39,24 +39,30 @@ self.addEventListener('message', async (event: any) => {
             self.postMessage({ type: 'status', data: `Initializing Brain (${model_id.split('/').pop()})...` });
             
             const isWebGPUSupported = 'gpu' in navigator && !!(await (navigator as any).gpu.requestAdapter());
-            
-            const pipelineOptions = {
-                device: isWebGPUSupported ? 'webgpu' : 'wasm',
-                dtype: 'q4',
+            const isSmolLM2 = model_id.includes('SmolLM2');
+
+            // Force WASM for SmolLM2 due to WebGPU attention collapse issues
+            const device = (isWebGPUSupported && !isSmolLM2) ? 'webgpu' : 'wasm';
+            const dtype = device === 'webgpu' ? 'q4f16' : 'q4';
+
+            console.log(`[Worker] Initializing ${model_id} on ${device} (dtype: ${dtype})`);
+
+            generator = await pipeline('text-generation', model_id, {
+                device: device as any,
+                dtype: dtype as any,
                 progress_callback: (p: any) => {
                     self.postMessage({ type: 'progress', data: p });
                 }
-            };
+            });
 
-            generator = await pipeline('text-generation', model_id, (pipelineOptions as any));
+            console.log(`[Worker] Pipeline ready: ${model_id} on ${device}`);
             self.postMessage({ type: 'ready' });
 
         } catch (e: any) {
-            console.error('All backends failed:', e);
+            console.error('[Worker] All backends failed:', e);
             self.postMessage({ type: 'error', data: `Engine initialization failed: ${e.message}` });
         }
-    } else if (type === 'generate') {
-        if (!generator) {
+    } else if (type === 'generate') {        if (!generator) {
             self.postMessage({ type: 'error', data: 'Generator not initialized' });
             return;
         }
@@ -72,37 +78,47 @@ self.addEventListener('message', async (event: any) => {
         } = data;
 
         try {
-            let fullText = '';
-            
+            // Apply chat template manually to ensure 'add_generation_prompt' is respected in v3
+            const prompt = generator.tokenizer.apply_chat_template(messages, { 
+                tokenize: false, 
+                add_generation_prompt: true 
+            });
+
+            let lastLength = 0;
             const callback_function = stream ? (beams: any) => {
                 const decoded = generator.tokenizer.decode(beams[0].output_token_ids, { skip_special_tokens: true });
-                self.postMessage({ type: 'delta', data: decoded });
+                // When using a raw prompt string, decoded contains the full string including prompt
+                const responsePart = decoded.substring(prompt.length);
+                const delta = responsePart.substring(lastLength);
+                lastLength = responsePart.length;
+                if (delta) self.postMessage({ type: 'delta', data: delta });
             } : undefined;
 
-            const result = await generator(messages, {
+            const result = await generator(prompt, {
                 max_new_tokens,
                 temperature,
-                do_sample: true,
+                do_sample: temperature > 0,
                 top_p,
                 top_k,
                 repetition_penalty,
                 return_full_text: false,
                 callback_function
             });
-            
+
             let output = '';
             if (Array.isArray(result) && result[0]?.generated_text) {
-                const generated = result[0].generated_text;
-                if (Array.isArray(generated)) {
-                    output = generated[generated.length - 1]?.content || '';
-                } else {
-                    output = generated;
-                }
+                output = result[0].generated_text;
             } else if (typeof result === 'string') {
                 output = result;
             }
 
             let finalOutput = String(output).trim();
+
+            // If the model somehow included the prompt in the output despite return_full_text: false
+            if (finalOutput.startsWith(prompt)) {
+                finalOutput = finalOutput.substring(prompt.length).trim();
+            }
+
             finalOutput = finalOutput.replace(/^(assistant|bot|reply):/i, '').trim();
 
             if (finalOutput.includes('\n')) {

@@ -184,6 +184,14 @@ export default function App() {
   const [isPlaygroundThinking, setIsPlaygroundThinking] = useState(false);
   const [playgroundInput, setPlaygroundInput] = useState('');
   const playgroundScrollRef = useRef<HTMLDivElement>(null);
+  const playgroundInputRef = useRef<HTMLInputElement>(null);
+
+  // Autoscroll Playground
+  useEffect(() => {
+    if (playgroundScrollRef.current) {
+      playgroundScrollRef.current.scrollTop = playgroundScrollRef.current.scrollHeight;
+    }
+  }, [playgroundMessages, isPlaygroundThinking]);
 
   // Event Batching Ref
   const eventBatchRef = useRef<{ id: string, update: Partial<Record<keyof BotStats, number>> }[]>([]);
@@ -338,6 +346,9 @@ export default function App() {
       addLog(`Playground Error: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error');
     } finally {
       setIsPlaygroundThinking(false);
+      setTimeout(() => {
+        playgroundInputRef.current?.focus();
+      }, 0);
     }
   };
 
@@ -2310,9 +2321,9 @@ export default function App() {
                         msg.role === 'user' ? "ml-auto items-end" : "mr-auto items-start"
                       )}>
                         <div className={cn(
-                          "px-3 py-2 rounded-2xl text-sm leading-relaxed",
-                          msg.role === 'user' 
-                            ? "bg-zinc-800 text-zinc-200 rounded-tr-none" 
+                          "px-3 py-2 rounded-2xl text-sm leading-relaxed break-words",
+                          msg.role === 'user'
+                            ? "bg-zinc-800 text-zinc-200 rounded-tr-none"
                             : "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-tl-none"
                         )}>
                           {msg.content}
@@ -2320,34 +2331,34 @@ export default function App() {
                         <span className="text-xs font-bold uppercase tracking-widest text-zinc-600 px-1">
                           {msg.role === 'user' ? 'You' : settings.profile.name || 'AI'}
                         </span>
-                      </div>
-                    ))}
-                    
-                    {isPlaygroundThinking && (
-                      <div className="flex flex-col items-start space-y-1 mr-auto animate-pulse">
+                        </div>
+                        ))}
+
+                        {isPlaygroundThinking && (
+                        <div className="flex flex-col items-start space-y-1 mr-auto animate-pulse">
                         <div className="bg-zinc-900 border border-zinc-800 px-3 py-2 rounded-2xl rounded-tl-none flex gap-1">
                           <div className="w-1 h-1 bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                           <div className="w-1 h-1 bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                           <div className="w-1 h-1 bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                         </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
+                        </div>
+                        )}
+                        </>
+                        )}
+                        </div>
 
-              <div className="p-3 bg-zinc-900/50 border-t border-zinc-800/50">
-                <div className="relative">
-                  <input 
-                    type="text"
-                    value={playgroundInput}
-                    onChange={(e) => setPlaygroundInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handlePlaygroundSend()}
-                    disabled={aiStatus !== 'ready' || isPlaygroundThinking}
-                    placeholder={aiStatus === 'ready' ? "Send a test message..." : "Waiting for Brain..."}
-                    className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-sm pr-10 focus:outline-none focus:border-emerald-500/50 transition-colors disabled:opacity-50"
-                  />
-                  <button 
+                        <div className="p-3 bg-zinc-900/50 border-t border-zinc-800/50">
+                        <div className="relative">
+                        <input
+                        ref={playgroundInputRef}
+                        type="text"
+                        value={playgroundInput}
+                        onChange={(e) => setPlaygroundInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handlePlaygroundSend()}
+                        disabled={aiStatus !== 'ready' || isPlaygroundThinking}
+                        placeholder={aiStatus === 'ready' ? "Send a test message..." : "Waiting for Brain..."}
+                        className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-sm pr-10 focus:outline-none focus:border-emerald-500/50 transition-colors disabled:opacity-50"
+                        />                  <button 
                     onClick={handlePlaygroundSend}
                     disabled={!playgroundInput.trim() || aiStatus !== 'ready' || isPlaygroundThinking}
                     className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-emerald-500 disabled:text-zinc-600 transition-colors"
