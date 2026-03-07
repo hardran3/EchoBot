@@ -75,6 +75,7 @@ export interface BotSettings {
   repostNotes: boolean;
   repostChance: number; // 0.0 to 1.0
   autoFollowBack: boolean;
+  politeMode: boolean;
   useAI: boolean;
   aiSystemPrompt: string;
   modelId: string;

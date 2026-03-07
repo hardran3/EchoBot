@@ -89,6 +89,7 @@ export const STORAGE_KEY_SAVED_IDENTITIES = 'echobot_saved_identities';
 export const STORAGE_KEY_CURRENT_SESSION = 'echobot_current_session';
 export const STORAGE_KEY_CURATOR_PUBKEY = 'echobot_curator_pubkey';
 export const STORAGE_KEY_GLOBAL_LIGHTNING_SYNC = 'echobot_global_lightning_sync';
+export const STORAGE_KEY_GLOBAL_POLITE_MODE = 'echobot_global_polite_mode';
 export const STORAGE_KEY_DEVICE_ID = 'echobot_device_id';
 export const STORAGE_KEY_LAST_SYNC = 'echobot_last_sync';
 
@@ -109,6 +110,7 @@ export const DEFAULT_SETTINGS: BotSettings = {
   repostNotes: false,
   repostChance: 0.25,
   autoFollowBack: false,
+  politeMode: true,
   useAI: false,
   aiSystemPrompt: MODEL_DEFAULT_PROMPTS[SUPPORTED_MODELS[0].id].neutral,
   modelId: SUPPORTED_MODELS[0].id,

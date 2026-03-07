@@ -72,6 +72,7 @@ import {
   STORAGE_KEY_SAVED_IDENTITIES,
   STORAGE_KEY_CURRENT_SESSION,
   STORAGE_KEY_GLOBAL_LIGHTNING_SYNC,
+  STORAGE_KEY_GLOBAL_POLITE_MODE,
   STORAGE_KEY_DEVICE_ID,
   STORAGE_KEY_LAST_SYNC,
   STORAGE_KEY_ACTIVE_NSEC,
@@ -171,6 +172,10 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState<'general' | 'ai' | 'advanced' | 'logs'>('general');
   const [globalUseCuratorLightning, setGlobalUseCuratorLightning] = useState(() => {
     return localStorage.getItem(STORAGE_KEY_GLOBAL_LIGHTNING_SYNC) === 'true';
+  });
+  const [globalPoliteMode, setGlobalPoliteMode] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_GLOBAL_POLITE_MODE);
+    return saved === null ? true : saved === 'true';
   });
   const [rightTab, setRightTab] = useState<'timeline' | 'persona'>('timeline');
   const [personaSubTab, setPersonaSubTab] = useState<'profile' | 'prompt' | 'tuning' | 'behavior' | 'proactive'>('profile');
@@ -634,6 +639,12 @@ export default function App() {
             needsMigration = true;
           }
 
+          // Migrate politeMode (v0.2.2)
+          if (updated.settings.politeMode === undefined) {
+            updated.settings.politeMode = true;
+            needsMigration = true;
+          }
+
           return updated;
         });
 
@@ -727,6 +738,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_GLOBAL_LIGHTNING_SYNC, String(globalUseCuratorLightning));
   }, [globalUseCuratorLightning]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_GLOBAL_POLITE_MODE, String(globalPoliteMode));
+  }, [globalPoliteMode]);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -2051,6 +2066,16 @@ export default function App() {
           }
         }
       } else if (event.pubkey === targetHex) {
+        // Polite Mode Logic: If enabled, only interact with root notes (no 'e' tags)
+        // Direct mentions (mentionsSelf) already handled above and override polite mode.
+        const isPolite = identity.settings.politeMode || globalPoliteMode;
+        const isReply = event.tags.some((t: any) => t[0] === 'e');
+        
+        if (isPolite && isReply) {
+          // Skip: Polite bots don't butt into threads unless mentioned
+          return;
+        }
+
         const targetNpub = nip19.npubEncode(event.pubkey);
         addLog(`[${identity.name}] New note from ${targetNpub}`, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
         
@@ -3172,6 +3197,32 @@ export default function App() {
                                 )} />
                               </div>
                             </label>
+
+                            {/* Polite Mode Toggle */}
+                            <label className="flex items-center justify-between p-3 bg-surface-container-low border border-outline/10 rounded-sm cursor-pointer hover:bg-surface-container transition-colors shadow-sm">
+                              <div className="space-y-0.5 flex-1 pr-4">
+                                <div className="flex items-center gap-2 text-[13px] font-bold text-on-surface uppercase tracking-wider">
+                                  Polite Mode
+                                  <span className="text-[9px] bg-emerald-500/10 text-emerald-400 px-1 border border-emerald-500/20 rounded-[2px] tracking-tighter">Recommended</span>
+                                </div>
+                                <div className="text-xs text-on-surface-variant">Bot will only start its own threads on top notes. Direct mentions still work.</div>
+                              </div>
+                              <div className={cn(
+                                "shrink-0 w-8 h-4 rounded-sm transition-all relative border border-outline/20",
+                                settings.politeMode ? "bg-emerald-500/40" : "bg-surface-container-high"
+                              )}>
+                                <input 
+                                  type="checkbox" 
+                                  checked={settings.politeMode}
+                                  onChange={(e) => setSettings(s => ({ ...s, politeMode: e.target.checked }))}
+                                  className="sr-only"
+                                />
+                                <div className={cn(
+                                  "absolute top-0.5 w-2.5 h-2.5 rounded-none transition-all border border-outline/30",
+                                  settings.politeMode ? "left-4.5 bg-emerald-400" : "left-0.5 bg-on-surface-variant"
+                                )} />
+                              </div>
+                            </label>
                           </div>
                         </motion.div>
                       )}
@@ -3808,10 +3859,29 @@ export default function App() {
                           </button>
                         </div>
 
+                        {/* Global Polite Mode Override */}
                         <div className="flex items-center justify-between p-4 bg-surface-container-high border border-outline/10 rounded-sm">
                           <div className="flex flex-col gap-1">
-                            <h4 className="text-xs font-bold uppercase tracking-widest text-white">Global Lightning Sync</h4>
-                            <p className="text-[10px] text-on-surface-variant">Use your Curator lightning address for all managed bots.</p>
+                            <h4 className="text-xs font-bold uppercase tracking-widest text-white">Global Polite Mode</h4>
+                            <p className="text-[10px] text-on-surface-variant">Enforce polite behavior for all bots (only start new threads).</p>
+                          </div>
+                          <button
+                            onClick={() => setGlobalPoliteMode(!globalPoliteMode)}
+                            className={cn(
+                              "w-10 h-5 rounded-full relative transition-colors border",
+                              globalPoliteMode ? "bg-emerald-500/20 border-emerald-500/40" : "bg-surface-container border-outline/20"
+                            )}
+                          >
+                            <div className={cn(
+                              "absolute top-0.5 w-3.5 h-3.5 rounded-sm transition-all",
+                              globalPoliteMode ? "left-5.5 bg-emerald-400" : "left-0.5 bg-on-surface-variant"
+                            )} />
+                          </button>
+                        </div>
+
+                        <div className="flex items-center justify-between p-4 bg-surface-container-high border border-outline/10 rounded-sm">
+                          <div className="flex flex-col gap-1">
+                            <h4 className="text-xs font-bold uppercase tracking-widest text-white">Global Lightning Sync</h4>                            <p className="text-[10px] text-on-surface-variant">Use your Curator lightning address for all managed bots.</p>
                           </div>
                           <button 
                             onClick={() => setGlobalUseCuratorLightning(!globalUseCuratorLightning)}
