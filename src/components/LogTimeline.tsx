@@ -74,6 +74,7 @@ export const LogTimeline = React.memo(({
                 key={log.id} 
                 log={log} 
                 profile={log.pubkey ? communityProfiles[log.pubkey] : undefined} 
+                communityProfiles={communityProfiles}
               />
             ))}
           </div>
@@ -83,77 +84,120 @@ export const LogTimeline = React.memo(({
   );
 });
 
-const LogItem = React.memo(({ log, profile }: { log: LogEntry, profile?: ProfileInfo }) => (
-  <div className={cn(
-    "flex items-start gap-3 px-3 py-2 transition-all group hover:bg-surface-container-low",
-    log.type === 'info' && "text-on-surface-variant/70",
-    log.type === 'success' && "bg-emerald-500/[0.03] text-emerald-400/90",
-    log.type === 'warning' && "bg-amber-500/[0.03] text-amber-400/90",
-    log.type === 'error' && "bg-red-500/[0.03] text-red-400/90"
-  )}>
-    <div className="shrink-0 mt-1 flex flex-col items-center gap-1">
-      {log.pubkey ? (
-        <img 
-          src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${log.pubkey}`} 
-          alt="" 
-          className="w-6 h-6 rounded-sm bg-surface-container-high border border-outline/10 object-cover shadow-sm"
-          crossOrigin="anonymous"
-        />
-      ) : (
-        <div className={cn(
-          "w-6 h-6 rounded-sm flex items-center justify-center border shadow-sm",
-          log.type === 'error' ? "bg-red-500/10 border-red-500/20 text-red-400" :
-          log.type === 'warning' ? "bg-amber-500/10 border-amber-500/20 text-amber-400" :
-          "bg-surface-container-high border-outline/10 text-emerald-500/60"
-        )}>
-          <Activity className="w-3.5 h-3.5" />
-        </div>
-      )}
-    </div>
+const LogItem = React.memo(({ log, profile, communityProfiles }: { log: LogEntry, profile?: ProfileInfo, communityProfiles: Record<string, ProfileInfo> }) => {
+  const renderMessage = (message: string) => {
+    // Regex for hex pubkeys (64 chars) and npubs (starts with npub1)
+    const nostrRegex = /\b(npub1[a-z0-9]{58}|[a-f0-9]{64})\b/g;
+    const parts = message.split(nostrRegex);
+    
+    if (parts.length === 1) return message;
 
-    <div className="flex-1 min-w-0 space-y-0.5">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-xs font-mono text-on-surface-variant/80 shrink-0">
-            {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
-          </span>
-          {log.botName && (
-            <span className="text-xs font-black uppercase tracking-tighter text-emerald-500 px-1.5 border border-emerald-500/20 rounded-sm bg-emerald-500/5 truncate">
-              {log.botName}
-            </span>
-          )}
-          {log.pubkey && profile?.name && (
-            <span className="text-xs font-bold text-on-surface-variant/80 truncate">
-              @{profile.name}
-            </span>
-          )}
-        </div>
+    return parts.map((part, i) => {
+      if (part.match(nostrRegex)) {
+        let pk = part;
+        let npub = part;
         
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {log.eventId && (
-            <a 
-              href={`https://njump.me/${nip19.neventEncode({ id: log.eventId, relays: log.relays })}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-1 hover:bg-surface-container-high rounded-sm text-on-surface-variant hover:text-emerald-500 transition-colors border border-transparent hover:border-outline/10"
-              title="View on njump"
-            >
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          )}
-          {log.type === 'success' && <CheckCircle2 className="w-3 h-3 text-emerald-500/60" />}
-          {log.type === 'error' && <AlertCircle className="w-3 h-3 text-red-500/60" />}
-        </div>
+        try {
+          if (part.startsWith('npub1')) {
+            const decoded = nip19.decode(part) as any;
+            if (decoded.type === 'npub') pk = decoded.data;
+          } else {
+            npub = nip19.npubEncode(part);
+          }
+        } catch (e) {}
+
+        const p = communityProfiles[pk];
+        
+        return (
+          <span key={i} className="inline-flex items-center gap-1 px-1 bg-surface-container border border-outline/10 rounded-sm mx-0.5 align-middle">
+            <img 
+              src={p?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${pk}`} 
+              alt="" 
+              className="w-3 h-3 rounded-none object-cover"
+              crossOrigin="anonymous"
+            />
+            <span className="text-[11px] font-bold text-emerald-500/80 truncate max-w-[80px]">
+              {p?.name || npub.substring(0, 10) + '...'}
+            </span>
+          </span>
+        );
+      }
+      return part;
+    });
+  };
+
+  return (
+    <div className={cn(
+      "flex items-start gap-3 px-3 py-2 transition-all group hover:bg-surface-container-low",
+      log.type === 'info' && "text-on-surface-variant/70",
+      log.type === 'success' && "bg-emerald-500/[0.03] text-emerald-400/90",
+      log.type === 'warning' && "bg-amber-500/[0.03] text-amber-400/90",
+      log.type === 'error' && "bg-red-500/[0.03] text-red-400/90"
+    )}>
+      <div className="shrink-0 mt-1 flex flex-col items-center gap-1">
+        {log.pubkey ? (
+          <img 
+            src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${log.pubkey}`} 
+            alt="" 
+            className="w-6 h-6 rounded-sm bg-surface-container-high border border-outline/10 object-cover shadow-sm"
+            crossOrigin="anonymous"
+          />
+        ) : (
+          <div className={cn(
+            "w-6 h-6 rounded-sm flex items-center justify-center border shadow-sm",
+            log.type === 'error' ? "bg-red-500/10 border-red-500/20 text-red-400" :
+            log.type === 'warning' ? "bg-amber-500/10 border-amber-500/20 text-amber-400" :
+            "bg-surface-container-high border-outline/10 text-emerald-500/60"
+          )}>
+            <Activity className="w-3.5 h-3.5" />
+          </div>
+        )}
       </div>
 
-      <p className={cn(
-        "text-sm leading-snug break-words font-medium",
-        log.type === 'error' ? "text-red-400" :
-        log.type === 'warning' ? "text-amber-400" :
-        "text-on-surface"
-      )}>
-        {log.message}
-      </p>
+      <div className="flex-1 min-w-0 space-y-0.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-xs font-mono text-on-surface-variant/80 shrink-0">
+              {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+            </span>
+            {log.botName && (
+              <span className="text-xs font-black uppercase tracking-tighter text-emerald-500 px-1.5 border border-emerald-500/20 rounded-sm bg-emerald-500/5 truncate">
+                {log.botName}
+              </span>
+            )}
+            {log.pubkey && profile?.name && (
+              <span className="text-xs font-bold text-on-surface-variant/80 truncate">
+                @{profile.name}
+              </span>
+            )}
+          </div>
+          
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            {log.eventId && (
+              <a 
+                href={`https://njump.me/${nip19.neventEncode({ id: log.eventId, relays: log.relays })}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-1 hover:bg-surface-container-high rounded-sm text-on-surface-variant hover:text-emerald-500 transition-colors border border-transparent hover:border-outline/10"
+                title="View on njump"
+              >
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+            {log.type === 'success' && <CheckCircle2 className="w-3 h-3 text-emerald-500/60" />}
+            {log.type === 'error' && <AlertCircle className="w-3 h-3 text-red-500/60" />}
+          </div>
+        </div>
+
+        <div className={cn(
+          "text-sm leading-snug break-words font-medium",
+          log.type === 'error' ? "text-red-400" :
+          log.type === 'warning' ? "text-amber-400" :
+          "text-on-surface"
+        )}>
+          {renderMessage(log.message)}
+        </div>
+      </div>
     </div>
-  </div>
-));
+  );
+});
