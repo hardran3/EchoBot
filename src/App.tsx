@@ -27,6 +27,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Info,
+  Key,
   Copy,
   Sparkles,
   Heart,
@@ -35,6 +36,7 @@ import {
   Lock,
   Brain,
   X,
+  LogOut,
   Send,
   Terminal,
   Users,
@@ -748,43 +750,58 @@ export default function App() {
     addLog('Copied to clipboard.', 'info');
   };
 
-  const handleNip07Login = async () => {
+  const handleNip07Login = async (): Promise<{ identities: Identity[] | null, profile: ProfileInfo | null, pubkey: string } | null> => {
     if (!window.nostr) {
       addLog('Nostr extension not found. Please install Alby or a similar extension.', 'error');
-      return;
+      return null;
     }
     try {
       const pubkey = await window.nostr.getPublicKey();
       setUserPubkey(pubkey);
       localStorage.setItem(STORAGE_KEY_CURATOR_PUBKEY, pubkey);
-      addLog(`Logged in as curator: ${pubkey.substring(0, 8)}...`, 'success');
+      
+      // Fetch profile first, then log with the name
+      const profile = await fetchCuratorProfile(pubkey);
+      addLog(`Logged in as curator: ${profile?.name || pubkey.substring(0, 8)}`, 'success', pubkey, profile?.name);
 
-      // Fetch Kind 0 profile
-      fetchCuratorProfile(pubkey);
+      // Perform initial sync IMMEDIATELY with the new pubkey
+      const synced = await performSync(true, pubkey);
+      return { identities: synced, profile, pubkey };
     } catch (e) {
       addLog('NIP-07 Login failed.', 'error');
+      return null;
     }
   };
 
-  const fetchCuratorProfile = async (pubkey: string) => {
+  const fetchCuratorProfile = async (pubkey: string): Promise<ProfileInfo | null> => {
     if (!poolRef.current) poolRef.current = new SimplePool();
-    const profileEvent = await poolRef.current.get(SEARCH_RELAYS, {
-      kinds: [0],
-      authors: [pubkey]
-    });
+    try {
+      const profileEvent = await poolRef.current.get(SEARCH_RELAYS, {
+        kinds: [0],
+        authors: [pubkey]
+      });
 
-    let profile: ProfileInfo;
-    if (profileEvent) {
-      try {
-        const content = JSON.parse(profileEvent.content);
-        profile = {
-          name: content.name || content.display_name || `NIP-07 User`,
-          about: content.about || '',
-          picture: content.picture || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${pubkey}`,
-          nip05: content.nip05 || '',
-          lud16: content.lud16 || content.lightning_address || ''
-        };
-      } catch (e) {
+      let profile: ProfileInfo;
+      if (profileEvent) {
+        try {
+          const content = JSON.parse(profileEvent.content);
+          profile = {
+            name: content.name || content.display_name || `NIP-07 User`,
+            about: content.about || '',
+            picture: content.picture || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${pubkey}`,
+            nip05: content.nip05 || '',
+            lud16: content.lud16 || content.lightning_address || ''
+          };
+        } catch (e) {
+          profile = {
+            name: `NIP-07 User`,
+            about: '',
+            picture: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${pubkey}`,
+            nip05: '',
+            lud16: ''
+          };
+        }
+      } else {
         profile = {
           name: `NIP-07 User`,
           about: '',
@@ -793,17 +810,12 @@ export default function App() {
           lud16: ''
         };
       }
-    } else {
-      profile = {
-        name: `NIP-07 User`,
-        about: '',
-        picture: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${pubkey}`,
-        nip05: '',
-        lud16: ''
-      };
+      setCuratorProfile(profile);
+      setCommunityProfiles(prev => ({ ...prev, [pubkey]: profile }));
+      return profile;
+    } catch (e) {
+      return null;
     }
-    setCuratorProfile(profile);
-    setCommunityProfiles(prev => ({ ...prev, [pubkey]: profile }));
   };
 
   const fetchProfiles = useCallback(async (pubkeys: string[]) => {
@@ -849,10 +861,10 @@ export default function App() {
   }, [logs, communityProfiles, fetchProfiles]);
 
   const handleLogout = () => {
-    setUserPubkey(null);
-    setCuratorProfile(null);
-    localStorage.removeItem(STORAGE_KEY_CURATOR_PUBKEY);
-    addLog('Logged out from curator account.', 'info');
+    if (window.confirm('Logging out will clear ALL local data, bots, and settings from this device. Are you sure?')) {
+      localStorage.clear();
+      window.location.reload();
+    }
   };
 
   const handleFreshStart = () => {
@@ -910,10 +922,11 @@ export default function App() {
   const lastPushedDataRef = useRef<string>('');
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const performSync = async (silent = false) => {
-    if (!userPubkey || !window.nostr?.nip44) {
+  const performSync = async (silent = false, overridePubkey?: string): Promise<Identity[] | null> => {
+    const pk = overridePubkey || userPubkey;
+    if (!pk || !window.nostr?.nip44) {
       if (!silent) addLog('NIP-44 capable extension required for cloud sync.', 'error');
-      return;
+      return null;
     }
 
     setIsSyncing(true);
@@ -925,19 +938,19 @@ export default function App() {
       // 1. Fetch latest from cloud
       const cloudEvent = await poolRef.current.get(SEARCH_RELAYS, {
         kinds: [30078],
-        authors: [userPubkey],
+        authors: [pk],
         '#d': ['echobot_identities']
       });
 
       let cloudIdentities: Identity[] = [];
       if (cloudEvent) {
         try {
-          const decrypted = await window.nostr.nip44.decrypt(userPubkey, cloudEvent.content);
+          const decrypted = await window.nostr.nip44.decrypt(pk, cloudEvent.content);
           cloudIdentities = JSON.parse(decrypted);
         } catch (e) {
           if (!silent) addLog('Failed to decrypt cloud data.', 'error');
           setIsSyncing(false);
-          return;
+          return null;
         }
       }
 
@@ -981,28 +994,25 @@ export default function App() {
       const mergedList = Array.from(mergedMap.values());
       const dataString = JSON.stringify(mergedList);
 
-      // 3. Skip if no changes since last push
-      if (dataString === lastPushedDataRef.current) {
-        if (!silent) addLog('Cloud is already up to date.', 'info');
-        return;
+      // 3. Skip push if no changes since last push (but still update local if we pulled from cloud)
+      if (dataString !== lastPushedDataRef.current) {
+        // Encrypt and Push
+        const encrypted = await window.nostr.nip44.encrypt(pk, dataString);
+        const event = {
+          kind: 30078,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [['d', 'echobot_identities']],
+          content: encrypted,
+          pubkey: pk
+        };
+
+        const signed = await window.nostr.signEvent(event);
+        const pubs = poolRef.current.publish(PUBLISH_RELAYS, signed);
+        await Promise.allSettled(pubs);
+        lastPushedDataRef.current = dataString;
       }
 
-      // 3. Encrypt and Push
-      const encrypted = await window.nostr.nip44.encrypt(userPubkey, dataString);
-      const event = {
-        kind: 30078,
-        created_at: Math.floor(Date.now() / 1000),
-        tags: [['d', 'echobot_identities']],
-        content: encrypted,
-        pubkey: userPubkey
-      };
-
-      const signed = await window.nostr.signEvent(event);
-      const pubs = poolRef.current.publish(PUBLISH_RELAYS, signed);
-      await Promise.allSettled(pubs);
-
       // 4. Update Local State & Ref
-      lastPushedDataRef.current = dataString;
       setSavedIdentities(mergedList);
       const now = Date.now();
       setLastSyncTime(now);
@@ -1013,8 +1023,10 @@ export default function App() {
         setShowSyncCheck(true);
         setTimeout(() => setShowSyncCheck(false), 3000);
       }
+      return mergedList;
     } catch (e) {
       if (!silent) addLog(`Sync failed: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error');
+      return null;
     } finally {
       setIsSyncing(false);
     }
@@ -1203,36 +1215,21 @@ export default function App() {
     addLog(`Imported "${persona.settings.profile.name}" by ${persona.author.substring(0, 8)}...`, 'success');
   };
 
-  const handleFinishOnboarding = (tempSettings: BotSettings) => {
-    const sk = generateSecretKey();
-    const pk = getPublicKey(sk);
-    const nsec = nip19.nsecEncode(sk);
-    const npub = nip19.npubEncode(pk);
-
-    const finalSettings = {
-      ...tempSettings,
-      profile: {
-        ...tempSettings.profile,
-        picture: `https://api.dicebear.com/7.x/bottts/svg?seed=${pk}`
-      }
-    };
-
-    const newIdentity: Identity = {
-      id: Math.random().toString(36).substring(7),
-      name: finalSettings.profile.name,
-      nsec,
-      npub,
-      settings: finalSettings,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      stats: INITIAL_STATS
-    };
-
-    setSavedIdentities(prev => [newIdentity, ...prev]);
-    loadIdentity(newIdentity);
-    setSettings(s => ({ ...s, useAI: true })); // Force AI on for new bots
+  const handleFinishOnboarding = (tempSettings: BotSettings, syncedIdentities?: Identity[] | null, syncedProfile?: ProfileInfo | null, explicitPubkey?: string) => {
+    setSettings(tempSettings);
     setShowOnboarding(false);
-    addLog(`Created your new AI Persona: ${finalSettings.profile.name}!`, 'success');
+    setCurrentView('manager');
+    
+    const activeIdentities = syncedIdentities || savedIdentities;
+    const hasBots = activeIdentities.filter(i => !i.deleted).length > 0;
+    const name = syncedProfile?.name || curatorProfile?.name || 'curator';
+    const effectivePubkey = explicitPubkey || userPubkey;
+    
+    if (effectivePubkey && hasBots) {
+      addLog(`Welcome back, ${name}! Your swarm is ready.`, 'success', effectivePubkey, name);
+    } else {
+      addLog('Welcome to EchoBot! Create your first bot to get started.', 'success');
+    }
   };
 
   const unpublishPersona = async (eventToDelete: any) => {
@@ -3446,9 +3443,17 @@ export default function App() {
                   {managerTab === 'local' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
                       {savedIdentities.filter(i => !i.deleted).length === 0 ? (
-                        <div className="h-full py-20 flex flex-col items-center justify-center opacity-20">
-                          <Users className="w-12 h-12 mb-4" />
-                          <p className="text-sm font-bold uppercase tracking-widest italic">No local identities found.</p>
+                        <div className="col-span-full py-20 flex flex-col items-center justify-center text-center space-y-4">
+                          <div className="w-16 h-16 rounded-full bg-emerald-500/5 flex items-center justify-center border border-emerald-500/10">
+                            <Plus className="w-8 h-8 text-emerald-500/20" />
+                          </div>
+                          <div className="space-y-1 px-4">
+                            <h3 className="text-sm font-black text-on-surface uppercase tracking-widest">No Bots Found</h3>
+                            <p className="text-xs text-on-surface-variant max-w-xs mx-auto leading-relaxed">
+                              Click the <span className="text-emerald-500 font-bold">Create Bot</span> button above to make your first bot, 
+                              or check the <span className="text-emerald-500 font-bold underline cursor-pointer" onClick={() => setManagerTab('community')}>Marketplace</span> for more options.
+                            </p>
+                          </div>
                         </div>
                       ) : (
                         savedIdentities.filter(i => !i.deleted).map((identity) => (
@@ -4417,6 +4422,7 @@ export default function App() {
         {showOnboarding && (
           <OnboardingWizard
             onFinish={handleFinishOnboarding}
+            onLogin={handleNip07Login}
             defaultSettings={DEFAULT_SETTINGS}
           />
         )}
@@ -4427,22 +4433,16 @@ export default function App() {
 
 // --- Onboarding Component ---
 
-function OnboardingWizard({ onFinish, defaultSettings }: { onFinish: (settings: BotSettings) => void, defaultSettings: BotSettings }) {
+function OnboardingWizard({ onFinish, onLogin, defaultSettings }: { onFinish: (settings: BotSettings, identities?: Identity[] | null, profile?: ProfileInfo | null, pubkey?: string) => void, onLogin: () => Promise<{ identities: Identity[] | null, profile: ProfileInfo | null, pubkey: string } | null>, defaultSettings: BotSettings }) {
   const [step, setStep] = useState(1);
-  const [tempSettings, setTempSettings] = useState<BotSettings>({
-    ...defaultSettings,
-    modelId: 'onnx-community/SmolLM2-360M-Instruct-ONNX',
-    profile: {
-      ...defaultSettings.profile,
-      name: 'My EchoBot'
-    }
-  });
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [tempSettings, setTempSettings] = useState<BotSettings>(defaultSettings);
 
   const deviceCores = navigator.hardwareConcurrency || 4;
   const deviceMemory = (navigator as any).deviceMemory || 0;
 
-  const handleFinish = () => {
-    onFinish(tempSettings);
+  const handleFinish = (identities?: Identity[] | null, profile?: ProfileInfo | null, pubkey?: string) => {
+    onFinish(tempSettings, identities, profile, pubkey);
   };
 
   const modelCards = [
@@ -4460,13 +4460,6 @@ function OnboardingWizard({ onFinish, defaultSettings }: { onFinish: (settings: 
       description: 'Superior reasoning. Recommended for 8GB+ RAM.',
       recommended: deviceMemory >= 8,
     }
-  ];
-
-  const personaVibes = [
-    { name: 'Helpful Assistant', prompt: MODEL_DEFAULT_PROMPTS[tempSettings.modelId]?.neutral || MODEL_DEFAULT_PROMPTS['onnx-community/SmolLM2-360M-Instruct-ONNX'].neutral },
-    { name: 'Playful Waifu', prompt: MODEL_DEFAULT_PROMPTS[tempSettings.modelId]?.waifu || MODEL_DEFAULT_PROMPTS['onnx-community/SmolLM2-360M-Instruct-ONNX'].waifu },
-    { name: 'Professional', prompt: 'You are {name}, a highly professional AI. Concise, clear, and focused. No slang or emojis.' },
-    { name: 'Chaos Gremlin', prompt: 'You are {name}, a chaotic gremlin. Short, witty, and slightly unhinged replies.' },
   ];
 
   return (
@@ -4538,40 +4531,50 @@ function OnboardingWizard({ onFinish, defaultSettings }: { onFinish: (settings: 
             {step === 2 && (
               <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                 <div className="space-y-1">
-                  <h1 className="text-2xl font-black text-white uppercase tracking-tighter">Define the Soul</h1>
-                  <p className="text-sm text-on-surface-variant">Give your bot a name and a baseline personality.</p>
+                  <h1 className="text-2xl font-black text-white uppercase tracking-tighter">Nostr Identity</h1>
+                  <p className="text-sm text-on-surface-variant">Connect your Nostr extension to sync your bots across devices.</p>
                 </div>
                 
-                <div className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Bot Name</label>
-                    <input 
-                      type="text"
-                      value={tempSettings.profile.name}
-                      onChange={(e) => setTempSettings(s => ({ ...s, profile: { ...s.profile, name: e.target.value } }))}
-                      className="w-full bg-surface-container border border-outline/20 rounded-sm px-4 py-3 text-lg font-black text-on-surface focus:outline-none focus:border-emerald-500/50 transition-colors shadow-inner"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Starting Vibe</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {personaVibes.map(vibe => (
-                        <button
-                          key={vibe.name}
-                          onClick={() => setTempSettings(s => ({ ...s, aiSystemPrompt: vibe.prompt }))}
-                          className={cn(
-                            "p-3 rounded-sm border text-left transition-all shadow-sm",
-                            tempSettings.aiSystemPrompt === vibe.prompt
-                              ? "bg-emerald-500/[0.03] border-emerald-500/50 text-emerald-400" 
-                              : "bg-surface-container border-outline/10 text-on-surface-variant hover:border-outline/30"
-                          )}
-                        >
-                          <h4 className="text-xs font-black uppercase tracking-tight">{vibe.name}</h4>
-                        </button>
-                      ))}
+                <div className="flex flex-col gap-4 py-4">
+                  <button
+                    disabled={isLoggingIn}
+                    onClick={async () => {
+                      setIsLoggingIn(true);
+                      const result = await onLogin();
+                      setIsLoggingIn(false);
+                      handleFinish(result?.identities, result?.profile, result?.pubkey);
+                    }}
+                    className={cn(
+                      "w-full p-6 bg-surface-container-high border rounded-sm transition-all flex items-center gap-4 group shadow-lg",
+                      isLoggingIn ? "border-outline/10 opacity-50 cursor-not-allowed" : "border-emerald-500/30 hover:border-emerald-500/50"
+                    )}
+                  >
+                    <div className="w-12 h-12 bg-emerald-500 text-black rounded-sm flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+                      {isLoggingIn ? <RefreshCw className="w-6 h-6 animate-spin" /> : <Key className="w-6 h-6" />}
                     </div>
-                  </div>
+                    <div className="text-left">
+                      <h3 className="text-lg font-black text-on-surface uppercase tracking-tight group-hover:text-emerald-400 transition-colors">
+                        {isLoggingIn ? 'Syncing Swarm...' : 'Login with Extension'}
+                      </h3>
+                      <p className="text-sm text-on-surface-variant">{isLoggingIn ? 'Retrieving your bots from the network...' : 'Connect via Alby, Nos2X, etc.'}</p>
+                    </div>
+                  </button>
+
+                  {!isLoggingIn && (
+                    <>
+                      <div className="relative py-2">
+                        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-outline/5"></div></div>
+                        <div className="relative flex justify-center text-[10px] uppercase font-black tracking-widest text-on-surface-variant/20"><span className="bg-surface px-2">or</span></div>
+                      </div>
+
+                      <button
+                        onClick={() => handleFinish()}
+                        className="w-full p-4 bg-surface-container border border-outline/10 hover:border-outline/20 rounded-sm transition-all text-xs font-black uppercase tracking-[0.2em] text-on-surface-variant hover:text-white"
+                      >
+                        Skip for now
+                      </button>
+                    </>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -4588,12 +4591,14 @@ function OnboardingWizard({ onFinish, defaultSettings }: { onFinish: (settings: 
             </button>
           ) : <div />}
           
-          <button
-            onClick={() => step === 2 ? handleFinish() : setStep(s => s + 1)}
-            className="px-6 py-2 bg-emerald-500 text-black rounded-sm font-black text-xs hover:bg-emerald-400 transition-all uppercase tracking-widest shadow-md"
-          >
-            {step === 2 ? 'Finish & Launch' : 'Continue'}
-          </button>
+          {step === 1 && (
+            <button
+              onClick={() => setStep(2)}
+              className="px-6 py-2 bg-emerald-500 text-black rounded-sm font-black text-xs hover:bg-emerald-400 transition-all uppercase tracking-widest shadow-md"
+            >
+              Continue
+            </button>
+          )}
         </div>
       </motion.div>
     </div>
