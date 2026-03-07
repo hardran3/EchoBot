@@ -1,4 +1,3 @@
-
 import React, { useReducer, useCallback, useMemo } from 'react';
 import { LogEntry, BotStats } from '../types';
 import { INITIAL_STATS, STORAGE_KEY_DEVICE_ID } from '../constants';

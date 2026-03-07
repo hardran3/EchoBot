@@ -2119,40 +2119,40 @@ export default function App() {
   // --- Render Helpers ---
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-zinc-200 font-sans selection:bg-emerald-500/30">
+    <div className="min-h-screen bg-surface text-on-surface font-sans selection:bg-emerald-500/30 selection:text-white">
       {/* Header */}
-      <header className="border-b border-zinc-800/50 bg-black/40 backdrop-blur-md sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
+      <header className="border-b border-outline/10 bg-surface-container-low sticky top-0 z-10 shadow-sm">
+        <div className="max-w-[1800px] mx-auto px-4 h-12 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center shadow-lg shadow-emerald-500/20">
-              <Brain className="w-5 h-5 text-black" />
+            <div className="w-7 h-7 bg-emerald-500 rounded-sm flex items-center justify-center shadow-md">
+              <Brain className="w-4 h-4 text-black" />
             </div>
-            <h1 className="text-xl font-semibold tracking-tight text-white">EchoBot</h1>
+            <h1 className="text-lg font-black tracking-tight text-white uppercase">EchoBot</h1>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             {userPubkey && curatorProfile ? (
               <button 
                 onClick={handleLogout}
-                className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800/50 rounded-full border border-zinc-700/50 hover:bg-red-500/10 hover:border-red-500/30 transition-all group"
+                className="flex items-center gap-2 px-2 py-1 bg-surface-container-high rounded-sm border border-outline/10 hover:border-red-500/30 transition-all group"
                 title="Sign Out"
               >
                 <img 
                   src={curatorProfile.picture} 
                   alt="Curator Avatar" 
-                  className="w-4 h-4 rounded-full group-hover:opacity-50"
+                  className="w-4 h-4 rounded-sm group-hover:opacity-50 object-cover"
                   referrerPolicy="no-referrer"
                   crossOrigin="anonymous"
                 />
-                <span className="text-xs font-medium text-zinc-300 group-hover:text-red-400">{curatorProfile.name}</span>
+                <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant group-hover:text-red-400">{curatorProfile.name}</span>
               </button>
             ) : (
               <button 
                 onClick={handleNip07Login}
-                className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800/50 text-zinc-400 rounded-full hover:bg-zinc-700/50 hover:text-white transition-colors text-xs font-medium border border-zinc-700/50"
+                className="flex items-center gap-2 px-2 py-1 bg-surface-container-high text-on-surface-variant rounded-sm hover:bg-surface-container hover:text-white transition-colors text-xs font-bold uppercase tracking-wider border border-outline/10"
                 title="Login with Nostr Extension"
               >
-                <User className="w-3.5 h-3.5" />
+                <User className="w-3 h-3" />
                 Sign In
               </button>
             )}
@@ -2162,65 +2162,66 @@ export default function App() {
                 setManagerTab('local');
                 setShowManager(true);
               }}
-              className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800/50 text-zinc-400 rounded-full hover:bg-zinc-700/50 hover:text-white transition-colors text-xs font-medium border border-zinc-700/50"
+              className="flex items-center gap-2 px-2 py-1 bg-surface-container-high text-on-surface-variant rounded-sm hover:bg-surface-container hover:text-white transition-colors text-xs font-bold uppercase tracking-wider border border-outline/10"
               title="Manage Identities"
             >
-              <Users className="w-3.5 h-3.5" />
+              <Users className="w-3 h-3" />
               Manage Bots
             </button>
             <button 
               onClick={() => setShowSettingsDialog(true)}
-              className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white"
+              className="p-1.5 hover:bg-surface-container-high rounded-sm transition-colors text-on-surface-variant hover:text-white"
               title="Bot Settings"
             >
-              <SettingsIcon className="w-5 h-5" />
+              <SettingsIcon className="w-4.5 h-4.5" />
             </button>
             </div>
             </div>
             </header>
-      <main className="max-w-5xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <main className="w-full max-w-[1800px] mx-auto px-4 py-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Left Column: Controls */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-3 space-y-4">
           {/* Background Swarm Status */}
           <AnimatePresence>
             {isAnyBotRunning && (
               <motion.section
-                initial={{ opacity: 0, height: 0, y: 20 }}
-                animate={{ opacity: 1, height: 'auto', y: 0 }}
-                exit={{ opacity: 0, height: 0, y: 20 }}
-                className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 space-y-4 overflow-hidden"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="bg-surface-container-low border border-emerald-500/20 rounded-sm p-3 space-y-3 overflow-hidden shadow-sm"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Users className="w-4 h-4 text-emerald-500" />
-                    <h2 className="text-sm font-bold uppercase tracking-widest text-emerald-500/80">Swarm Status</h2>
+                    <h2 className="text-xs font-bold uppercase tracking-widest text-emerald-500/80">Swarm Status</h2>
                   </div>
-                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-tighter rounded-full border border-emerald-500/30 animate-pulse">
+                  <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 text-xs font-black uppercase tracking-tighter border border-emerald-500/20">
                     {runningIdentityIds.size} Active
                   </span>
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   {savedIdentities.filter(id => isRunning(id.id)).map(bot => (
-                    <BotCard 
-                      key={bot.id} 
-                      bot={bot} 
-                      isRunning={true} 
-                      onStop={stopBot} 
-                      sessionStats={sessionStats[bot.id]} 
-                      communityProfiles={communityProfiles} 
+                    <BotCard
+                      key={bot.id}
+                      bot={bot}
+                      isRunning={true}
+                      onStop={stopBot}
+                      sessionStats={sessionStats[bot.id]}
+                      communityProfiles={communityProfiles}
                     />
                   ))}
                 </div>
               </motion.section>
-            )}          </AnimatePresence>
+            )}
+          </AnimatePresence>
 
           {/* Identity Info */}
-          <section className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-6 space-y-4 relative overflow-hidden group/card">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2 text-zinc-400">
+          <section className="bg-surface-container border border-outline/10 rounded-sm p-3 space-y-3 relative overflow-hidden group/card shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-on-surface-variant">
                 {settings.useAI ? <Brain className="w-4 h-4 text-emerald-500" /> : <Activity className="w-4 h-4" />}
-                <h2 className="text-sm font-bold uppercase tracking-widest">{settings.useAI ? 'AI Identity' : 'Current Identity'}</h2>
+                <h2 className="text-xs font-bold uppercase tracking-widest">{settings.useAI ? 'AI Identity' : 'Current Identity'}</h2>
               </div>
               {settings.useAI && (
                 <button 
@@ -2228,57 +2229,57 @@ export default function App() {
                     setRightTab('persona');
                     setPersonaSubTab('prompt');
                   }}
-                  className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-emerald-500 transition-all flex items-center gap-1.5 border border-transparent hover:border-zinc-700"
+                  className="p-1 hover:bg-surface-container-high rounded-sm text-on-surface-variant hover:text-emerald-500 transition-all flex items-center gap-1.5 border border-transparent hover:border-outline/20"
                   title="AI Persona Settings"
                 >
                   <SettingsIcon className="w-3.5 h-3.5" />
                   <span className="text-xs font-bold uppercase">Persona</span>
                 </button>
               )}
-            </div>            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <img 
-                  src={settings.profile.picture} 
-                  alt="Avatar" 
-                  className="w-10 h-10 rounded-lg bg-zinc-800 border border-zinc-700"
-                  referrerPolicy="no-referrer"
-                  crossOrigin="anonymous"
-                />                <div className="min-w-0 flex-1">
-                  <div className="text-base font-medium text-white truncate flex items-center gap-2">
-                    {settings.profile.name || 'Anonymous'}
+            </div>
+            <div className="flex items-center gap-3">
+              <img 
+                src={settings.profile.picture} 
+                alt="Avatar" 
+                className="w-10 h-10 rounded-sm bg-surface-container-high border border-outline/10 object-cover shadow-sm"
+                referrerPolicy="no-referrer"
+                crossOrigin="anonymous"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-bold text-on-surface truncate flex items-center gap-2 leading-none">
+                  {settings.profile.name || 'Anonymous'}
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="text-xs text-on-surface-variant font-mono truncate flex-1">
+                    {currentIdentity ? nip19.npubEncode(currentIdentity.pk) : 'Generating...'}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="text-xs text-zinc-500 font-mono truncate flex-1">
-                      {currentIdentity ? nip19.npubEncode(currentIdentity.pk) : 'Generating...'}
+                  {currentIdentity && (
+                    <div className="flex items-center gap-1">
+                      <a 
+                        href={`https://jumble.social/users/${nip19.npubEncode(currentIdentity.pk)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1 hover:bg-surface-container-high rounded-sm transition-colors text-on-surface-variant hover:text-emerald-500 border border-transparent hover:border-outline/20"
+                        title="View on Jumble.social"
+                      >
+                        <Globe className="w-3.5 h-3.5" />
+                      </a>
+                      <button 
+                        onClick={() => copyToClipboard(nip19.npubEncode(currentIdentity.pk))}
+                        className="p-1 hover:bg-surface-container-high rounded-sm transition-colors text-on-surface-variant hover:text-white border border-transparent hover:border-outline/20"
+                        title="Copy npub"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                      <button 
+                        onClick={() => copyToClipboard(nip19.nsecEncode(currentIdentity.sk))}
+                        className="p-1 hover:bg-surface-container-high rounded-sm transition-colors text-on-surface-variant hover:text-white border border-transparent hover:border-outline/20"
+                        title="Copy nsec"
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                    {currentIdentity && (
-                      <div className="flex items-center gap-1.5">
-                        <a 
-                          href={`https://jumble.social/users/${nip19.npubEncode(currentIdentity.pk)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="p-1.5 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-500 hover:text-emerald-500 border border-transparent hover:border-zinc-700"
-                          title="View on Jumble.social"
-                        >
-                          <Globe className="w-4 h-4" />
-                        </a>
-                        <button 
-                          onClick={() => copyToClipboard(nip19.npubEncode(currentIdentity.pk))}
-                          className="p-1.5 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-500 hover:text-white border border-transparent hover:border-zinc-700"
-                          title="Copy npub"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
-                        <button 
-                          onClick={() => copyToClipboard(nip19.nsecEncode(currentIdentity.sk))}
-                          className="p-1.5 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-500 hover:text-white border border-transparent hover:border-zinc-700"
-                          title="Copy nsec (Private Key)"
-                        >
-                          <Lock className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -2286,16 +2287,19 @@ export default function App() {
 
           {/* AI Playground (Test Bench) */}
           {settings.useAI && (
-            <section className="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl overflow-hidden flex flex-col h-[400px]">
-              <div className="px-4 py-3 border-b border-zinc-800/50 flex items-center justify-between bg-zinc-900/50">
+            <section className="bg-surface-container-low border border-outline/10 rounded-sm overflow-hidden flex flex-col h-[400px] shadow-sm">
+              <div className="px-3 py-2 border-b border-outline/10 flex items-center justify-between bg-surface-container">
                 <div className="flex items-center gap-2">
                   <Terminal className="w-3.5 h-3.5 text-emerald-500" />
-                  <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400">AI Persona Test Bench</h3>
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">AI Persona Test Bench</h3>
                 </div>
                 {playgroundMessages.length > 0 && (
                   <button 
-                    onClick={() => setPlaygroundMessages([])}
-                    className="text-[11px] font-bold uppercase tracking-widest text-zinc-600 hover:text-zinc-400 transition-colors"
+                    onClick={() => {
+                      setPlaygroundMessages([]);
+                      conversationHistoryRef.current.delete('playground');
+                    }}
+                    className="text-xs font-bold uppercase tracking-widest text-on-surface-variant hover:text-white transition-colors"
                   >
                     Clear Chat
                   </button>
@@ -2304,64 +2308,65 @@ export default function App() {
 
               <div 
                 ref={playgroundScrollRef}
-                className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-black/20"
+                className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar bg-surface"
               >
                 {playgroundMessages.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center space-y-2 opacity-40">
-                    <Brain className="w-8 h-8 text-zinc-700" />
-                    <p className="text-xs font-medium text-zinc-500 max-w-[150px]">
-                      Send a message to test how the AI responds with current settings.
+                  <div className="h-full flex flex-col items-center justify-center text-center space-y-2 opacity-30">
+                    <Brain className="w-8 h-8 text-on-surface" />
+                    <p className="text-xs font-medium text-on-surface-variant max-w-[150px]">
+                      Send a message to test how the AI responds.
                     </p>
                   </div>
                 ) : (
                   <>
                     {playgroundMessages.map((msg, idx) => (
                       <div key={idx} className={cn(
-                        "flex flex-col max-w-[85%] space-y-1",
+                        "flex flex-col max-w-[90%] space-y-1",
                         msg.role === 'user' ? "ml-auto items-end" : "mr-auto items-start"
                       )}>
                         <div className={cn(
-                          "px-3 py-2 rounded-2xl text-sm leading-relaxed break-words",
+                          "px-3 py-2 rounded-sm text-sm leading-relaxed break-words shadow-sm",
                           msg.role === 'user'
-                            ? "bg-zinc-800 text-zinc-200 rounded-tr-none"
-                            : "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-tl-none"
+                            ? "bg-surface-container-high text-on-surface border border-outline/10"
+                            : "bg-emerald-500/5 border border-emerald-500/20 text-emerald-400"
                         )}>
                           {msg.content}
                         </div>
-                        <span className="text-xs font-bold uppercase tracking-widest text-zinc-600 px-1">
+                        <span className="text-xs font-bold uppercase tracking-tighter text-on-surface-variant opacity-50 px-1">
                           {msg.role === 'user' ? 'You' : settings.profile.name || 'AI'}
                         </span>
-                        </div>
-                        ))}
+                      </div>
+                    ))}
 
-                        {isPlaygroundThinking && (
-                        <div className="flex flex-col items-start space-y-1 mr-auto animate-pulse">
-                        <div className="bg-zinc-900 border border-zinc-800 px-3 py-2 rounded-2xl rounded-tl-none flex gap-1">
-                          <div className="w-1 h-1 bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                          <div className="w-1 h-1 bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                          <div className="w-1 h-1 bg-zinc-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    {isPlaygroundThinking && (
+                      <div className="flex flex-col items-start space-y-1 mr-auto">
+                        <div className="bg-surface-container border border-outline/10 px-3 py-2 rounded-sm flex gap-1 shadow-sm">
+                          <div className="w-1 h-1 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <div className="w-1 h-1 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                          <div className="w-1 h-1 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                         </div>
-                        </div>
-                        )}
-                        </>
-                        )}
-                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
 
-                        <div className="p-3 bg-zinc-900/50 border-t border-zinc-800/50">
-                        <div className="relative">
-                        <input
-                        ref={playgroundInputRef}
-                        type="text"
-                        value={playgroundInput}
-                        onChange={(e) => setPlaygroundInput(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handlePlaygroundSend()}
-                        disabled={aiStatus !== 'ready' || isPlaygroundThinking}
-                        placeholder={aiStatus === 'ready' ? "Send a test message..." : "Waiting for Brain..."}
-                        className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-sm pr-10 focus:outline-none focus:border-emerald-500/50 transition-colors disabled:opacity-50"
-                        />                  <button 
+              <div className="p-2 bg-surface-container border-t border-outline/10">
+                <div className="relative">
+                  <input
+                    ref={playgroundInputRef}
+                    type="text"
+                    value={playgroundInput}
+                    onChange={(e) => setPlaygroundInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handlePlaygroundSend()}
+                    disabled={aiStatus !== 'ready'}
+                    placeholder={aiStatus === 'ready' ? "Send a test message..." : "Waiting for Brain..."}
+                    className="w-full bg-surface border border-outline/20 rounded-sm px-3 py-2 text-sm pr-10 focus:outline-none focus:border-emerald-500/50 transition-colors disabled:opacity-50"
+                  />
+                  <button 
                     onClick={handlePlaygroundSend}
                     disabled={!playgroundInput.trim() || aiStatus !== 'ready' || isPlaygroundThinking}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-emerald-500 disabled:text-zinc-600 transition-colors"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-emerald-500 disabled:text-on-surface-variant transition-colors"
                   >
                     <Send className="w-4 h-4" />
                   </button>
@@ -2372,14 +2377,14 @@ export default function App() {
 
           {/* Active Relays */}
           {activeRelays.length > 0 && (
-            <section className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-6 space-y-4">
-              <div className="flex items-center gap-2 text-zinc-400 mb-2">
-                <RefreshCw className="w-4 h-4" />
-                <h2 className="text-sm font-bold uppercase tracking-widest">Active Relays ({activeRelays.length})</h2>
+            <section className="bg-surface-container border border-outline/10 rounded-sm p-3 space-y-2 shadow-sm">
+              <div className="flex items-center gap-2 text-on-surface-variant mb-1">
+                <RefreshCw className="w-3.5 h-3.5" />
+                <h2 className="text-xs font-bold uppercase tracking-widest">Active Relays ({activeRelays.length})</h2>
               </div>
-              <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar">
+              <div className="space-y-1 max-h-24 overflow-y-auto custom-scrollbar">
                 {activeRelays.map((relay, idx) => (
-                  <div key={idx} className="text-xs font-mono text-zinc-500 truncate">
+                  <div key={idx} className="text-xs font-mono text-on-surface-variant truncate">
                     • {relay}
                   </div>
                 ))}
@@ -2388,10 +2393,10 @@ export default function App() {
           )}
 
           {/* Target Section */}
-          <section className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl p-6 space-y-4">
-            <div className="flex items-center gap-2 text-zinc-400 mb-2">
-              <Target className="w-4 h-4" />
-              <h2 className="text-sm font-bold uppercase tracking-widest">Target npub</h2>
+          <section className="bg-surface-container border border-outline/10 rounded-sm p-3 space-y-3 shadow-sm">
+            <div className="flex items-center gap-2 text-on-surface-variant mb-1">
+              <Target className="w-3.5 h-3.5" />
+              <h2 className="text-xs font-bold uppercase tracking-widest">Target npub</h2>
             </div>
             <input 
               type="text"
@@ -2399,16 +2404,16 @@ export default function App() {
               value={settings.targetNpub}
               onChange={(e) => setSettings(s => ({ ...s, targetNpub: e.target.value }))}
               disabled={activeIdentityId ? isRunning(activeIdentityId) : false}
-              className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-emerald-500/50 transition-colors disabled:opacity-50"
+              className="w-full bg-surface border border-outline/20 rounded-sm px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors disabled:opacity-50"
             />
-            <p className="text-xs text-zinc-500 italic">
+            <p className="text-xs text-on-surface-variant opacity-90 italic leading-tight">
               The bot will monitor this user's outbox relays for new notes.
             </p>
 
             {activeIdentityId && isRunning(activeIdentityId) ? (
               <button 
                 onClick={() => stopBot(activeIdentityId)}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-500/10 text-red-500 border border-red-500/20 rounded-xl hover:bg-red-500/20 transition-all font-semibold"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-red-500/10 text-red-500 border border-red-500/20 rounded-sm hover:bg-red-500/20 transition-all font-bold text-sm uppercase tracking-wider"
               >
                 <Square className="w-4 h-4 fill-current" />
                 Stop Bot
@@ -2431,11 +2436,12 @@ export default function App() {
                 }}
                 disabled={((settings.useAI && aiStatus !== 'ready') || !activeIdentityId) || (!settings.targetNpub && !settings.proactive?.enabled)}
                 className={cn(
-                  "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all font-bold shadow-lg",
+                  "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-sm transition-all font-bold text-sm uppercase tracking-wider shadow-md",
                   ((settings.useAI && aiStatus !== 'ready') || !activeIdentityId) || (!settings.targetNpub && !settings.proactive?.enabled)
-                    ? "bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700 shadow-none"
-                    : "bg-emerald-500 text-black hover:bg-emerald-400 shadow-emerald-500/20"
-                )}              >
+                    ? "bg-surface-container-high text-on-surface-variant cursor-not-allowed border border-outline/10 shadow-none"
+                    : "bg-emerald-500 text-black hover:bg-emerald-400"
+                )}
+              >
                 {settings.useAI && aiStatus !== 'ready' ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
@@ -2454,27 +2460,27 @@ export default function App() {
         </div>
 
         {/* Right Column: Content Tabs */}
-        <div className="lg:col-span-7">
-          <section className="bg-zinc-900/50 border border-zinc-800/50 rounded-2xl h-full flex flex-col overflow-hidden">
-            <div className="flex border-b border-zinc-800/50">
+        <div className="lg:col-span-9">
+          <section className="bg-surface-container border border-outline/10 rounded-sm h-full flex flex-col overflow-hidden shadow-sm">
+            <div className="flex border-b border-outline/10 bg-surface-container-low">
               <button
                 onClick={() => setRightTab('timeline')}
                 className={cn(
-                  "flex-1 py-4 text-xs font-bold uppercase tracking-widest transition-all border-b-2 flex items-center justify-center gap-2",
-                  rightTab === 'timeline' ? "text-emerald-500 border-emerald-500 bg-emerald-500/5" : "text-zinc-500 border-transparent hover:text-zinc-300"
+                  "flex-1 py-3 text-xs font-bold uppercase tracking-widest transition-all border-b-2 flex items-center justify-center gap-2",
+                  rightTab === 'timeline' ? "text-emerald-500 border-emerald-500 bg-emerald-500/5" : "text-on-surface-variant border-transparent hover:text-on-surface hover:bg-surface-container-high"
                 )}
               >
-                <Activity className="w-3 h-3" />
+                <Activity className="w-3.5 h-3.5" />
                 Timeline
               </button>
               <button
                 onClick={() => setRightTab('persona')}
                 className={cn(
-                  "flex-1 py-4 text-xs font-bold uppercase tracking-widest transition-all border-b-2 flex items-center justify-center gap-2",
-                  rightTab === 'persona' ? "text-emerald-500 border-emerald-500 bg-emerald-500/5" : "text-zinc-500 border-transparent hover:text-zinc-300"
+                  "flex-1 py-3 text-xs font-bold uppercase tracking-widest transition-all border-b-2 flex items-center justify-center gap-2",
+                  rightTab === 'persona' ? "text-emerald-500 border-emerald-500 bg-emerald-500/5" : "text-on-surface-variant border-transparent hover:text-on-surface hover:bg-surface-container-high"
                 )}
               >
-                <User className="w-3 h-3" />
+                <User className="w-3.5 h-3.5" />
                 Persona Settings
               </button>
             </div>
@@ -2490,7 +2496,7 @@ export default function App() {
                 />
               ) : (
                 <div className="flex-1 flex flex-col overflow-hidden">
-                  <div className="flex gap-1 p-2 bg-black/20 border-b border-zinc-800/30">
+                  <div className="flex gap-1 p-1.5 bg-surface-container-low border-b border-outline/10">
                     {(() => {
                       const tabs = [
                         { id: 'profile', label: 'Profile', icon: User },
@@ -2506,10 +2512,10 @@ export default function App() {
                           key={tab.id}
                           onClick={() => setPersonaSubTab(tab.id as any)}
                           className={cn(
-                            "flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
+                            "flex-1 flex items-center justify-center gap-2 py-1.5 px-2 rounded-sm text-xs font-bold uppercase tracking-wider transition-all border border-transparent",
                             personaSubTab === tab.id 
-                              ? "bg-zinc-800 text-emerald-400 shadow-inner" 
-                              : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                              ? "bg-surface-container-high text-emerald-400 border-outline/10 shadow-sm" 
+                              : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/50"
                           )}
                         >
                           <tab.icon className="w-3 h-3" />
@@ -2519,59 +2525,59 @@ export default function App() {
                     })()}
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                  <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-surface">
                     <AnimatePresence mode="wait">
                       {personaSubTab === 'profile' && (
                         <motion.div 
                           key="profile"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          className="space-y-5"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          className="space-y-4"
                         >
-                          <div className="grid grid-cols-1 gap-5">
-                            <div className="space-y-1.5">
-                              <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Display Name</label>
+                          <div className="grid grid-cols-1 gap-4">
+                            <div className="space-y-1">
+                              <label className="text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">Display Name</label>
                               <input 
                                 type="text"
                                 value={settings.profile.name}
                                 onChange={(e) => setSettings(s => ({ ...s, profile: { ...s.profile, name: e.target.value } }))}
-                                className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
+                                className="w-full bg-surface-container border border-outline/20 rounded-sm px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors"
                               />
                             </div>
-                            <div className="space-y-1.5">
-                              <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">About / Bio</label>
+                            <div className="space-y-1">
+                              <label className="text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">About / Bio</label>
                               <textarea 
                                 value={settings.profile.about}
                                 onChange={(e) => setSettings(s => ({ ...s, profile: { ...s.profile, about: e.target.value } }))}
-                                className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-base focus:outline-none focus:border-emerald-500/50 transition-colors h-24 resize-none"
+                                className="w-full bg-surface-container border border-outline/20 rounded-sm px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors h-20 resize-none"
                               />
                             </div>
-                            <div className="space-y-1.5">
-                              <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Picture URL</label>
+                            <div className="space-y-1">
+                              <label className="text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">Picture URL</label>
                               <input 
                                 type="text"
                                 value={settings.profile.picture}
                                 onChange={(e) => setSettings(s => ({ ...s, profile: { ...s.profile, picture: e.target.value } }))}
-                                className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
+                                className="w-full bg-surface-container border border-outline/20 rounded-sm px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors"
                               />
                             </div>
                             <div className="grid grid-cols-2 gap-4">
-                              <div className="space-y-1.5">
-                                <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">NIP-05</label>
+                              <div className="space-y-1">
+                                <label className="text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">NIP-05</label>
                                 <input 
                                   type="text"
                                   value={settings.profile.nip05}
                                   onChange={(e) => setSettings(s => ({ ...s, profile: { ...s.profile, nip05: e.target.value } }))}
-                                  className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
+                                  className="w-full bg-surface-container border border-outline/20 rounded-sm px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors"
                                   placeholder="user@domain.com"
                                 />
                               </div>
-                              <div className="space-y-1.5">
+                              <div className="space-y-1">
                                 <div className="flex items-center justify-between">
-                                  <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Lightning (LUD-16)</label>
+                                  <label className="text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">Lightning (LUD-16)</label>
                                   {globalUseCuratorLightning && curatorProfile?.lud16 && (
-                                    <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-tighter">Override Active</span>
+                                    <span className="text-xs font-bold text-emerald-500 uppercase tracking-tighter">Override Active</span>
                                   )}
                                 </div>
                                 <input
@@ -2580,12 +2586,13 @@ export default function App() {
                                   onChange={(e) => setSettings(s => ({ ...s, profile: { ...s.profile, lud16: e.target.value } }))}
                                   disabled={globalUseCuratorLightning && !!curatorProfile?.lud16}
                                   className={cn(
-                                    "w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-base focus:outline-none focus:border-emerald-500/50 transition-colors",
+                                    "w-full bg-surface-container border border-outline/20 rounded-sm px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors",
                                     globalUseCuratorLightning && curatorProfile?.lud16 ? "text-emerald-500 border-emerald-500/20" : ""
                                   )}
                                   placeholder="user@getalby.com"
                                 />
-                              </div>                            </div>
+                              </div>
+                            </div>
                           </div>
                         </motion.div>
                       )}
@@ -2593,31 +2600,31 @@ export default function App() {
                       {personaSubTab === 'prompt' && (
                         <motion.div 
                           key="prompt"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
                           className="space-y-4"
                         >
                           <div className="space-y-3">
                             <div className="flex items-center justify-between">
-                              <h4 className="text-xs font-bold uppercase tracking-widest text-zinc-500">System Prompt</h4>
+                              <h4 className="text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">System Prompt</h4>
                               <div className="flex gap-2">
-                                <code className="text-[11px] px-1.5 py-0.5 bg-zinc-800 rounded text-pink-400">{"{name}"}</code>
-                                <code className="text-[11px] px-1.5 py-0.5 bg-zinc-800 rounded text-pink-400">{"{target_name}"}</code>
+                                <code className="text-xs px-1.5 py-0.5 bg-surface-container-high rounded-sm text-tertiary border border-outline/10">{"{name}"}</code>
+                                <code className="text-xs px-1.5 py-0.5 bg-surface-container-high rounded-sm text-tertiary border border-outline/10">{"{target_name}"}</code>
                               </div>
                             </div>
                             <textarea
                               value={settings.aiSystemPrompt}
                               onChange={(e) => setSettings(s => ({ ...s, aiSystemPrompt: e.target.value }))}
-                              className="w-full bg-black border border-zinc-800 rounded-2xl px-5 py-4 text-base focus:outline-none focus:border-emerald-500/50 transition-colors min-h-[300px] leading-relaxed text-zinc-300 custom-scrollbar"
+                              className="w-full bg-surface-container border border-outline/20 rounded-sm px-4 py-3 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors min-h-[350px] leading-relaxed text-on-surface custom-scrollbar resize-none shadow-inner"
                               placeholder="Describe how the AI should behave..."
                             />
-                            <div className="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl space-y-2">
+                            <div className="p-3 bg-emerald-500/[0.03] border border-emerald-500/10 rounded-sm space-y-1.5">
                               <div className="flex items-center gap-2 text-emerald-500/80">
                                 <Sparkles className="w-3.5 h-3.5" />
                                 <span className="text-xs font-bold uppercase tracking-widest">Bot Tip</span>
                               </div>
-                              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                              <p className="text-xs text-on-surface-variant leading-relaxed opacity-80">
                                 Operational rules (no meta-talk, etc.) are applied automatically. Use this space strictly to define your character's personality and vibe.
                               </p>
                             </div>
@@ -2628,21 +2635,21 @@ export default function App() {
                       {personaSubTab === 'tuning' && (
                         <motion.div 
                           key="tuning"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          className="space-y-6"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          className="space-y-5"
                         >
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-2 gap-1.5">
                             {Object.keys(MODEL_PRESETS[settings.modelId] || {}).map((preset) => (
                               <button
                                 key={preset}
                                 onClick={() => setSettings(s => ({ ...s, ...MODEL_PRESETS[s.modelId][preset] }))}
                                 className={cn(
-                                  "px-3 py-2 rounded-xl border text-xs font-bold uppercase transition-all",
+                                  "px-2 py-1.5 rounded-sm border text-xs font-bold uppercase tracking-wider transition-all",
                                   Object.entries(MODEL_PRESETS[settings.modelId][preset]).every(([k, v]) => (settings as any)[k] === v)
                                     ? "bg-emerald-500/10 border-emerald-500 text-emerald-500"
-                                    : "bg-black border-zinc-800 text-zinc-500 hover:border-zinc-700"
+                                    : "bg-surface-container-high border-outline/10 text-on-surface-variant hover:border-outline/30"
                                 )}
                               >
                                 {preset}
@@ -2650,63 +2657,51 @@ export default function App() {
                             ))}
                           </div>
 
-                          <div className="space-y-5 px-1">
+                          <div className="space-y-4">
                             {[
                               { 
                                 label: 'Temperature', 
                                 key: 'temperature', 
                                 min: 0, max: 2, step: 0.01,
-                                tip: 'Controls randomness. Higher values (e.g. 1.0) make output more creative, lower values (e.g. 0.2) make it more focused and deterministic.'
+                                tip: 'Controls randomness. Higher values make output more creative, lower make it focused.'
                               },
                               { 
                                 label: 'Top-P (Nucleus)', 
                                 key: 'top_p', 
                                 min: 0, max: 1, step: 0.01,
-                                tip: 'Limits vocabulary to a subset whose cumulative probability is P. Helps balance diversity and quality.'
+                                tip: 'Limits vocabulary to a subset of likely tokens.'
                               },
                               { 
                                 label: 'Top-K', 
                                 key: 'top_k', 
                                 min: 1, max: 100, step: 1,
-                                tip: 'Restricts the model to the top K most likely next tokens. Lower values make output more predictable.'
+                                tip: 'Restricts to the top K most likely next tokens.'
                               },
                               { 
                                 label: 'Repetition Penalty', 
                                 key: 'repetition_penalty', 
                                 min: 1, max: 2, step: 0.01,
-                                tip: 'Discourages the model from repeating the same words or phrases. Higher values (e.g. 1.2) reduce loopiness.'
-                              },
-                              { 
-                                label: 'Presence Penalty', 
-                                key: 'presence_penalty', 
-                                min: -2, max: 2, step: 0.01,
-                                tip: 'Positive values increase the model\'s likelihood of talking about new topics.'
-                              },
-                              { 
-                                label: 'Frequency Penalty', 
-                                key: 'frequency_penalty', 
-                                min: -2, max: 2, step: 0.01,
-                                tip: 'Reduces the chance of the model repeating the exact same lines of text.'
-                              },
+                                tip: 'Discourages repeating the same words or phrases.'
+                              }
                             ].map((param) => (
-                              <div key={param.key} className="space-y-2">
-                                <div className="flex justify-between items-center group/tip relative">
+                              <div key={param.key} className="space-y-1.5">
+                                <div className="flex justify-between items-center group/tip relative px-1">
                                   <div className="flex items-center gap-1.5">
-                                    <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">{param.label}</label>
+                                    <label className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">{param.label}</label>
                                     <div className="relative group/icon">
-                                      <Info className="w-3 h-3 text-zinc-600 hover:text-emerald-500 cursor-help transition-colors" />
-                                      <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-[10px] text-zinc-400 font-medium leading-relaxed shadow-xl opacity-0 group-hover/icon:opacity-100 pointer-events-none transition-opacity z-50">
+                                      <Info className="w-3 h-3 text-on-surface-variant opacity-40 hover:text-emerald-500 cursor-help transition-colors" />
+                                      <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-surface-container-high border border-outline/20 rounded-sm text-xs text-on-surface-variant font-medium leading-relaxed shadow-xl opacity-0 group-hover/icon:opacity-100 pointer-events-none transition-opacity z-50">
                                         {param.tip}
                                       </div>
                                     </div>
                                   </div>
-                                  <span className="text-xs font-mono text-emerald-500">{(settings as any)[param.key].toFixed(param.step < 1 ? 2 : 0)}</span>
+                                  <span className="text-xs font-mono font-bold text-emerald-500">{(settings as any)[param.key].toFixed(param.step < 1 ? 2 : 0)}</span>
                                 </div>
                                 <input 
                                   type="range" min={param.min} max={param.max} step={param.step}
                                   value={(settings as any)[param.key]}
                                   onChange={(e) => setSettings(s => ({ ...s, [param.key]: parseFloat(e.target.value) }))}
-                                  className="w-full accent-emerald-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                                  className="w-full accent-emerald-500 h-1 bg-surface-container-high rounded-none appearance-none cursor-pointer border-x border-outline/10"
                                 />
                               </div>
                             ))}
@@ -2717,21 +2712,21 @@ export default function App() {
                       {personaSubTab === 'behavior' && (
                         <motion.div
                           key="behavior"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          className="space-y-6"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          className="space-y-4"
                         >
-                          <div className="space-y-4">
+                          <div className="space-y-3">
                             {/* Reactions Toggle */}
-                            <label className="flex items-center justify-between p-4 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
-                              <div className="space-y-1">
-                                <div className="text-base font-bold text-white uppercase tracking-wider">Enable Reactions</div>
-                                <div className="text-xs text-zinc-500 text-balance">The bot will send your custom emojis to the target's notes.</div>
+                            <label className="flex items-center justify-between p-3 bg-surface-container-low border border-outline/10 rounded-sm cursor-pointer hover:bg-surface-container transition-colors shadow-sm">
+                              <div className="space-y-0.5">
+                                <div className="text-[13px] font-bold text-on-surface uppercase tracking-wider">Enable Reactions</div>
+                                <div className="text-xs text-on-surface-variant">The bot will send emojis to the target's notes.</div>
                               </div>
                               <div className={cn(
-                                "w-10 h-5 rounded-full transition-all relative",
-                                settings.reactToNotes ? "bg-emerald-500" : "bg-zinc-800"
+                                "w-8 h-4 rounded-sm transition-all relative border border-outline/20",
+                                settings.reactToNotes ? "bg-emerald-500/40" : "bg-surface-container-high"
                               )}>
                                 <input 
                                   type="checkbox" 
@@ -2740,29 +2735,29 @@ export default function App() {
                                   className="sr-only"
                                 />
                                 <div className={cn(
-                                  "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
-                                  settings.reactToNotes ? "left-6" : "left-1"
+                                  "absolute top-0.5 w-2.5 h-2.5 rounded-none transition-all border border-outline/30",
+                                  settings.reactToNotes ? "left-4.5 bg-emerald-400" : "left-0.5 bg-on-surface-variant"
                                 )} />
                               </div>
                             </label>
 
                             {settings.reactToNotes && (
-                              <div className="space-y-4 p-1">
-                                <div className="space-y-2">
-                                  <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Custom Emojis Pool</label>
-                                  <div className="flex gap-2">
+                              <div className="space-y-3 p-1">
+                                <div className="space-y-1">
+                                  <label className="text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">Custom Emojis Pool</label>
+                                  <div className="flex gap-1.5">
                                     <input 
                                       type="text"
                                       value={settings.reactionEmojis}
                                       onChange={(e) => setSettings(s => ({ ...s, reactionEmojis: e.target.value }))}
-                                      className="flex-1 bg-black border border-zinc-800 rounded-xl px-4 py-3 text-lg focus:outline-none focus:border-emerald-500/50 transition-colors"
+                                      className="flex-1 bg-surface-container border border-outline/20 rounded-sm px-3 py-2 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
                                       placeholder="❤️ 🔥 👍"
                                     />
                                     <button 
                                       onClick={() => setShowEmojiPickerDialog(true)}
-                                      className="px-4 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl transition-colors border border-zinc-700 flex items-center justify-center"
+                                      className="px-3 bg-surface-container-high hover:bg-surface-container border border-outline/20 text-on-surface rounded-sm transition-colors flex items-center justify-center"
                                     >
-                                      <Sparkles className="w-5 h-5" />
+                                      <Sparkles className="w-4 h-4" />
                                     </button>
                                   </div>
                                 </div>
@@ -2770,32 +2765,33 @@ export default function App() {
                             )}
 
                             {/* Proactive Posting Master Toggle */}
-                            <div className="p-4 bg-zinc-900/30 border border-zinc-800/50 rounded-2xl">
+                            <div className="p-3 bg-surface-container-low border border-outline/10 rounded-sm shadow-sm">
                               <div className="flex items-center justify-between">
-                                <div className="space-y-1">
-                                  <div className="text-base font-bold text-white uppercase tracking-wider">Proactive Posting</div>
-                                  <div className="text-xs text-zinc-500">Enable original notes and autonomous interaction.</div>
+                                <div className="space-y-0.5">
+                                  <div className="text-[13px] font-bold text-on-surface uppercase tracking-wider">Proactive Posting</div>
+                                  <div className="text-xs text-on-surface-variant">Original notes and autonomous interaction.</div>
                                 </div>
                                 <div className={cn(
-                                  "w-10 h-5 rounded-full transition-all relative cursor-pointer",
-                                  settings.proactive?.enabled ? "bg-emerald-500" : "bg-zinc-800"
+                                  "w-8 h-4 rounded-sm transition-all relative cursor-pointer border border-outline/20",
+                                  settings.proactive?.enabled ? "bg-emerald-500/40" : "bg-surface-container-high"
                                 )} onClick={() => setSettings(s => ({ ...s, proactive: { ...s.proactive, enabled: !s.proactive?.enabled } }))}>
                                   <div className={cn(
-                                    "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
-                                    settings.proactive?.enabled ? "left-6" : "left-1"
+                                    "absolute top-0.5 w-2.5 h-2.5 rounded-none transition-all border border-outline/30",
+                                    settings.proactive?.enabled ? "left-4.5 bg-emerald-400" : "left-0.5 bg-on-surface-variant"
                                   )} />
                                 </div>
                               </div>
                             </div>
 
-                            {/* Repost Toggle */}                            <label className="flex items-center justify-between p-4 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
-                              <div className="space-y-1">
-                                <div className="text-base font-bold text-white uppercase tracking-wider">Enable Reposting</div>
-                                <div className="text-xs text-zinc-500 text-balance">The bot will occasionally repost the target's new notes to its own timeline.</div>
+                            {/* Repost Toggle */}
+                            <label className="flex items-center justify-between p-3 bg-surface-container-low border border-outline/10 rounded-sm cursor-pointer hover:bg-surface-container transition-colors shadow-sm">
+                              <div className="space-y-0.5">
+                                <div className="text-[13px] font-bold text-on-surface uppercase tracking-wider">Enable Reposting</div>
+                                <div className="text-xs text-on-surface-variant">Repost target's notes to bot timeline.</div>
                               </div>
                               <div className={cn(
-                                "w-10 h-5 rounded-full transition-all relative",
-                                settings.repostNotes ? "bg-emerald-500" : "bg-zinc-800"
+                                "w-8 h-4 rounded-sm transition-all relative border border-outline/20",
+                                settings.repostNotes ? "bg-emerald-500/40" : "bg-surface-container-high"
                               )}>
                                 <input 
                                   type="checkbox" 
@@ -2804,39 +2800,36 @@ export default function App() {
                                   className="sr-only"
                                 />
                                 <div className={cn(
-                                  "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
-                                  settings.repostNotes ? "left-6" : "left-1"
+                                  "absolute top-0.5 w-2.5 h-2.5 rounded-none transition-all border border-outline/30",
+                                  settings.repostNotes ? "left-4.5 bg-emerald-400" : "left-0.5 bg-on-surface-variant"
                                 )} />
                               </div>
                             </label>
 
                             {settings.repostNotes && (
-                              <div className="p-4 bg-zinc-900/30 border border-zinc-800/50 rounded-2xl space-y-3">
-                                <div className="flex justify-between items-center">
-                                  <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Repost Probability</span>
+                              <div className="p-3 bg-surface-container border border-outline/10 rounded-sm space-y-2 shadow-inner">
+                                <div className="flex justify-between items-center px-1">
+                                  <span className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">Chance</span>
                                   <span className="text-xs font-mono font-bold text-emerald-500">{Math.round((settings.repostChance ?? 0.25) * 100)}%</span>
                                 </div>
                                 <input
-                                  type="range"
-                                  min="0.01"
-                                  max="1.0"
-                                  step="0.01"
+                                  type="range" min="0.01" max="1.0" step="0.01"
                                   value={settings.repostChance ?? 0.25}
                                   onChange={(e) => setSettings(s => ({ ...s, repostChance: parseFloat(e.target.value) }))}
-                                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                                  className="w-full h-1 bg-surface-container-high appearance-none cursor-pointer accent-emerald-500"
                                 />
-                                <p className="text-[10px] text-zinc-500 italic">Only top-level notes from the target will be considered for reposting.</p>
                               </div>
                             )}
 
-                            {/* Auto Follow Back Toggle */}                            <label className="flex items-center justify-between p-4 bg-black border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-700 transition-colors">
-                              <div className="space-y-1">
-                                <div className="text-base font-bold text-white uppercase tracking-wider">Follow Back Users</div>
-                                <div className="text-xs text-zinc-500 text-balance">Automatically follow users who interact with the bot's notes.</div>
+                            {/* Auto Follow Back Toggle */}
+                            <label className="flex items-center justify-between p-3 bg-surface-container-low border border-outline/10 rounded-sm cursor-pointer hover:bg-surface-container transition-colors shadow-sm">
+                              <div className="space-y-0.5">
+                                <div className="text-[13px] font-bold text-on-surface uppercase tracking-wider">Follow Back</div>
+                                <div className="text-xs text-on-surface-variant">Follow users who interact with the bot.</div>
                               </div>
                               <div className={cn(
-                                "w-10 h-5 rounded-full transition-all relative",
-                                settings.autoFollowBack ? "bg-emerald-500" : "bg-zinc-800"
+                                "w-8 h-4 rounded-sm transition-all relative border border-outline/20",
+                                settings.autoFollowBack ? "bg-emerald-500/40" : "bg-surface-container-high"
                               )}>
                                 <input 
                                   type="checkbox" 
@@ -2845,8 +2838,8 @@ export default function App() {
                                   className="sr-only"
                                 />
                                 <div className={cn(
-                                  "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
-                                  settings.autoFollowBack ? "left-6" : "left-1"
+                                  "absolute top-0.5 w-2.5 h-2.5 rounded-none transition-all border border-outline/30",
+                                  settings.autoFollowBack ? "left-4.5 bg-emerald-400" : "left-0.5 bg-on-surface-variant"
                                 )} />
                               </div>
                             </label>
@@ -2857,20 +2850,20 @@ export default function App() {
                       {personaSubTab === 'proactive' && (
                         <motion.div
                           key="proactive"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          className="space-y-6"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          className="space-y-4"
                         >
-                          <div className="space-y-6">
+                          <div className="space-y-4">
                             {/* Timing Controls */}
-                            <div className="p-4 bg-black/40 border border-zinc-800 rounded-2xl space-y-4">
-                              <div className="flex justify-between items-center">
+                            <div className="p-3 bg-surface-container border border-outline/10 rounded-sm space-y-3 shadow-inner">
+                              <div className="flex justify-between items-center px-1">
                                 <div className="flex items-center gap-2">
-                                  <Clock className="w-4 h-4 text-emerald-500" />
-                                  <span className="text-xs font-bold text-zinc-300 uppercase tracking-widest">Post Frequency</span>
+                                  <Clock className="w-3.5 h-3.5 text-emerald-500" />
+                                  <span className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">Frequency</span>
                                 </div>
-                                <span className="text-sm font-mono font-bold text-emerald-500">
+                                <span className="text-xs font-mono font-bold text-emerald-500">
                                   Every {(() => {
                                     const mins = settings.proactive?.interval || 240;
                                     const h = Math.floor(mins / 60);
@@ -2880,37 +2873,27 @@ export default function App() {
                                 </span>
                               </div>
                               <input
-                                type="range"
-                                min="15"
-                                max="1440"
-                                step="15"
+                                type="range" min="15" max="1440" step="15"
                                 value={settings.proactive?.interval || 240}
                                 onChange={(e) => setSettings(s => ({ ...s, proactive: { ...s.proactive, interval: parseInt(e.target.value) } }))}
-                                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                                className="w-full h-1 bg-surface-container-high appearance-none cursor-pointer accent-emerald-500"
                               />
-                              <div className="flex justify-between text-[10px] font-bold text-zinc-600 uppercase tracking-tighter">
-                                <span>15m</span>
-                                <span>6h</span>
-                                <span>12h</span>
-                                <span>24h</span>
-                              </div>
                             </div>
 
                             {/* Inspiration Source */}
-                            <div className="space-y-4">
-                              <div className="space-y-2">
-                                <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Inspiration Source</label>
-                                <p className="text-[10px] text-zinc-600 italic">The bot will read recent notes from these sources for AI context.</p>
-                                <div className="flex gap-2">
+                            <div className="space-y-3">
+                              <div className="space-y-1">
+                                <label className="text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">Inspiration Source</label>
+                                <div className="flex gap-1">
                                   {(['target', 'follows', 'both'] as const).map((source) => (
                                     <button
                                       key={source}
                                       onClick={() => setSettings(s => ({ ...s, proactive: { ...s.proactive, inspiration: source } }))}
                                       className={cn(
-                                        "flex-1 py-2 rounded-xl text-[10px] font-bold uppercase border transition-all",
+                                        "flex-1 py-1.5 rounded-sm text-xs font-bold uppercase border transition-all",
                                         settings.proactive?.inspiration === source 
-                                          ? "bg-zinc-100 text-black border-zinc-100 shadow-lg" 
-                                          : "bg-black text-zinc-600 border-zinc-800 hover:border-zinc-700"
+                                          ? "bg-on-surface text-surface border-on-surface shadow-md" 
+                                          : "bg-surface-container-high text-on-surface-variant border-outline/10 hover:border-outline/30"
                                       )}
                                     >
                                       {source}
@@ -2919,48 +2902,45 @@ export default function App() {
                                 </div>
                               </div>
 
-                              <div className="space-y-2">
-                                <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">AI Post Prompt</label>
+                              <div className="space-y-1">
+                                <label className="text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">AI Post Prompt</label>
                                 <textarea
                                   value={settings.proactive?.aiPostPrompt}
                                   onChange={(e) => setSettings(s => ({ ...s, proactive: { ...s.proactive, aiPostPrompt: e.target.value } }))}
-                                  className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors h-24 resize-none leading-relaxed text-zinc-400"
+                                  className="w-full bg-surface-container border border-outline/20 rounded-sm px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors h-24 resize-none leading-relaxed text-on-surface shadow-inner"
                                   placeholder="Instructions for original posts..."
                                 />
                               </div>
                             </div>
 
                             {/* Interaction Settings */}
-                            <div className="p-4 bg-zinc-900/30 border border-zinc-800/50 rounded-2xl space-y-4">
+                            <div className="p-3 bg-surface-container-low border border-outline/10 rounded-sm space-y-3 shadow-sm">
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
-                                  <Users className="w-4 h-4 text-emerald-500" />
-                                  <span className="text-xs font-bold text-zinc-300 uppercase tracking-widest">Reply to Mentions</span>
+                                  <Users className="w-3.5 h-3.5 text-emerald-500" />
+                                  <span className="text-xs font-bold text-on-surface uppercase tracking-widest">Reply to Mentions</span>
                                 </div>
                                 <div className={cn(
-                                  "w-10 h-5 rounded-full transition-all relative cursor-pointer",
-                                  settings.proactive?.replyToMentions ? "bg-emerald-500" : "bg-zinc-800"
+                                  "w-8 h-4 rounded-sm transition-all relative cursor-pointer border border-outline/20",
+                                  settings.proactive?.replyToMentions ? "bg-emerald-500/40" : "bg-surface-container-high"
                                 )} onClick={() => setSettings(s => ({ ...s, proactive: { ...s.proactive, replyToMentions: !s.proactive?.replyToMentions } }))}>
                                   <div className={cn(
-                                    "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
-                                    settings.proactive?.replyToMentions ? "left-6" : "left-1"
+                                    "absolute top-0.5 w-2.5 h-2.5 rounded-none transition-all border border-outline/30",
+                                    settings.proactive?.replyToMentions ? "left-4.5 bg-emerald-400" : "left-0.5 bg-on-surface-variant"
                                   )} />
                                 </div>
                               </div>
                               {settings.proactive?.replyToMentions && (
-                                <div className="space-y-3 pt-2 border-t border-zinc-800/20">
-                                  <div className="flex justify-between items-center">
-                                    <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Reply Probability</span>
+                                <div className="space-y-2 pt-2 border-t border-outline/10">
+                                  <div className="flex justify-between items-center px-1">
+                                    <span className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">Probability</span>
                                     <span className="text-xs font-mono font-bold text-emerald-500">{Math.round((settings.proactive?.replyProbability || 0.5) * 100)}%</span>
                                   </div>
                                   <input
-                                    type="range"
-                                    min="0"
-                                    max="1"
-                                    step="0.05"
+                                    type="range" min="0" max="1" step="0.05"
                                     value={settings.proactive?.replyProbability || 0.5}
                                     onChange={(e) => setSettings(s => ({ ...s, proactive: { ...s.proactive, replyProbability: parseFloat(e.target.value) } }))}
-                                    className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                                    className="w-full h-1 bg-surface-container-high appearance-none cursor-pointer accent-emerald-500"
                                   />
                                 </div>
                               )}
@@ -2971,34 +2951,34 @@ export default function App() {
                     </AnimatePresence>
                   </div>
 
-                  <div className="p-4 bg-black/40 border-t border-zinc-800/50 flex flex-col gap-3">
+                  <div className="p-3 bg-surface-container-low border-t border-outline/10 flex flex-col gap-2">
                     {userPubkey ? (
                       <button
                         onClick={publishPersona}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-500 text-black rounded-xl font-bold text-xs hover:bg-emerald-400 transition-all uppercase tracking-widest shadow-lg shadow-emerald-500/10"
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-emerald-500 text-black rounded-sm font-bold text-xs hover:bg-emerald-400 transition-all uppercase tracking-widest shadow-md shadow-emerald-500/10"
                       >
                         <Send className="w-3.5 h-3.5" />
-                        Publish Persona to Network
+                        Publish Persona
                       </button>
                     ) : (
                       <button
                         onClick={handleNip07Login}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-zinc-800 text-zinc-400 rounded-xl font-bold text-xs hover:bg-zinc-700 hover:text-white transition-all uppercase tracking-widest"
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-surface-container-high text-on-surface-variant rounded-sm font-bold text-xs hover:bg-surface-container transition-all uppercase tracking-widest border border-outline/10"
                       >
                         <User className="w-3.5 h-3.5" />
                         Sign In to Publish
                       </button>
                     )}
                     
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between items-center px-1">
                       <button
                         onClick={() => setShowAddIdentityDialog(true)}
-                        className="px-4 py-2 bg-zinc-800 text-zinc-400 rounded-full font-semibold text-[10px] hover:bg-zinc-700 hover:text-white transition-all flex items-center gap-2 uppercase tracking-widest"
+                        className="text-xs font-black uppercase tracking-tighter text-on-surface-variant hover:text-emerald-500 transition-colors flex items-center gap-1.5"
                       >
                         <Plus className="w-3 h-3" />
                         Create New Bot
                       </button>
-                      <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-600 italic">Settings save automatically</span>
+                      <span className="text-xs font-bold uppercase tracking-tighter text-on-surface-variant">Auto-Saving enabled</span>
                     </div>
                   </div>
                 </div>
@@ -3011,29 +2991,29 @@ export default function App() {
       {/* Unified Identity & Discovery Manager */}
       <AnimatePresence>
         {showManager && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-0 md:p-12 bg-black/80 backdrop-blur-xl">
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-0 md:p-8 bg-black/80 backdrop-blur-sm">
             <motion.div 
-              initial={{ opacity: 0, scale: 0.98 }}
+              initial={{ opacity: 0, scale: 0.99 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              className="bg-zinc-900 border border-zinc-800 md:rounded-3xl w-full h-full max-w-6xl overflow-hidden shadow-2xl flex flex-col"
+              exit={{ opacity: 0, scale: 0.99 }}
+              className="bg-surface border border-outline/10 md:rounded-sm w-full h-full max-w-6xl overflow-hidden shadow-2xl flex flex-col"
             >
               {/* Header / Tabs */}
-              <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/50">
-                <div className="flex items-center gap-8">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-outline/10 bg-surface-container-low">
+                <div className="flex items-center gap-6">
                   <div className="flex items-center gap-2">
                     <Brain className="w-5 h-5 text-emerald-500" />
-                    <h3 className="text-xl font-bold text-white tracking-tight">Bot Central</h3>
+                    <h3 className="text-lg font-black text-white uppercase tracking-tight">Bot Central</h3>
                   </div>
-                  <nav className="flex gap-1 p-1 bg-black/40 rounded-xl border border-zinc-800">
+                  <nav className="flex gap-1 p-1 bg-surface-container-high rounded-sm border border-outline/10">
                     <button 
                       onClick={() => setManagerTab('local')}
                       className={cn(
-                        "px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2",
-                        managerTab === 'local' ? "bg-zinc-800 text-emerald-400 shadow-inner" : "text-zinc-500 hover:text-zinc-300"
+                        "px-3 py-1 rounded-none text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2",
+                        managerTab === 'local' ? "bg-on-surface text-surface shadow-md" : "text-on-surface-variant hover:text-on-surface"
                       )}
                     >
-                      <Users className="w-3.5 h-3.5" />
+                      <Users className="w-3 h-3" />
                       My Identities
                     </button>
                     <button 
@@ -3042,44 +3022,44 @@ export default function App() {
                         fetchCommunityPersonas();
                       }}
                       className={cn(
-                        "px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2",
-                        managerTab === 'community' ? "bg-zinc-800 text-emerald-400 shadow-inner" : "text-zinc-500 hover:text-zinc-300"
+                        "px-3 py-1 rounded-none text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2",
+                        managerTab === 'community' ? "bg-on-surface text-surface shadow-md" : "text-on-surface-variant hover:text-on-surface"
                       )}
                     >
-                      <Sparkles className="w-3.5 h-3.5" />
+                      <Sparkles className="w-3 h-3" />
                       Marketplace
                     </button>
                   </nav>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                   {managerTab === 'community' && (
                     <button 
                       onClick={fetchCommunityPersonas}
                       disabled={isDiscovering}
-                      className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-500 hover:text-white disabled:opacity-50"
+                      className="p-1.5 hover:bg-surface-container-high rounded-sm transition-colors text-on-surface-variant hover:text-white disabled:opacity-50 border border-transparent hover:border-outline/10"
                     >
                       <RefreshCw className={cn("w-4 h-4", isDiscovering && "animate-spin")} />
                     </button>
                   )}
-                  <button onClick={() => setShowManager(false)} className="text-zinc-500 hover:text-white transition-colors">
-                    <X className="w-6 h-6" />
+                  <button onClick={() => setShowManager(false)} className="p-1.5 hover:bg-surface-container-high rounded-sm text-on-surface-variant hover:text-red-400 transition-colors border border-transparent hover:border-outline/10">
+                    <X className="w-5 h-5" />
                   </button>
                 </div>
               </div>
 
               {/* Main Content Area */}
-              <div className="flex-1 overflow-hidden flex">
+              <div className="flex-1 overflow-hidden flex bg-surface">
                 {managerTab === 'local' ? (
                   <div className="flex-1 flex flex-col min-w-0">
-                    <div className="p-4 border-b border-zinc-800/50 flex justify-between items-center bg-black/20">
+                    <div className="px-4 py-2 border-b border-outline/10 flex justify-between items-center bg-surface-container-low shadow-sm">
                       <div className="space-y-0.5">
-                        <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Saved Bots ({savedIdentities.filter(i => !i.deleted).length})</p>
+                        <p className="text-xs text-on-surface-variant font-bold uppercase tracking-widest ml-1">Saved Bots ({savedIdentities.filter(i => !i.deleted).length})</p>
                       </div>
                       <div className="flex items-center gap-2">
                         {isAnyBotRunning && (
                           <button 
                             onClick={() => stopBot()}
-                            className="px-3 py-1.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all flex items-center gap-2"
+                            className="px-2 py-1 bg-red-500/10 text-red-400 border border-red-500/20 rounded-sm text-xs font-bold uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all flex items-center gap-1.5"
                           >
                             <Square className="w-3 h-3 fill-current" />
                             Stop All
@@ -3090,7 +3070,7 @@ export default function App() {
                             const name = prompt('Enter a name for this bot:');
                             if (name) saveIdentity(name);
                           }}
-                          className="px-3 py-1.5 bg-zinc-800 text-zinc-300 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-zinc-700 transition-all flex items-center gap-2 border border-zinc-700"
+                          className="px-2 py-1 bg-surface-container-high text-on-surface-variant rounded-sm text-xs font-bold uppercase tracking-widest hover:bg-surface-container hover:text-white transition-all flex items-center gap-1.5 border border-outline/10"
                         >
                           <Save className="w-3 h-3" />
                           Save Current
@@ -3100,7 +3080,7 @@ export default function App() {
                             setShowManager(false);
                             setShowAddIdentityDialog(true);
                           }}
-                          className="px-3 py-1.5 bg-emerald-500 text-black rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-400 transition-all flex items-center gap-2"
+                          className="px-2 py-1 bg-emerald-500 text-black rounded-sm text-xs font-bold uppercase tracking-widest hover:bg-emerald-400 transition-all flex items-center gap-1.5 shadow-md"
                         >
                           <Plus className="w-3 h-3" />
                           New Bot
@@ -3109,10 +3089,10 @@ export default function App() {
                           onClick={syncWithCloud}
                           disabled={isSyncing || !userPubkey}
                           className={cn(
-                            "px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2 border",
+                            "px-2 py-1 rounded-sm text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-1.5 border",
                             isSyncing 
-                              ? "bg-zinc-800 text-zinc-500 border-zinc-700 cursor-not-allowed"
-                              : "bg-purple-500/10 text-purple-400 border-purple-500/20 hover:bg-purple-500 hover:text-black hover:border-purple-500"
+                              ? "bg-surface-container-high text-on-surface-variant/40 border-outline/10 cursor-not-allowed"
+                              : "bg-purple-500/5 text-purple-400 border-purple-500/20 hover:bg-purple-500 hover:text-black shadow-sm"
                           )}
                         >
                           {showSyncCheck ? (
@@ -3129,34 +3109,34 @@ export default function App() {
                         </button>
                       </div>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                    <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
                       {savedIdentities.filter(i => !i.deleted).length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-30">
+                        <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-20 text-on-surface">
                           <Users className="w-12 h-12" />
-                          <p className="text-sm font-medium italic">No saved bots yet.</p>
+                          <p className="text-xs font-bold uppercase tracking-widest italic">No saved bots yet.</p>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                           {savedIdentities.filter(i => !i.deleted).map((identity) => (
                             <div 
                               key={identity.id}
                               className={cn(
-                                "group p-4 rounded-3xl border transition-all flex flex-col gap-4 relative overflow-hidden",
+                                "group p-3 rounded-sm border transition-all flex flex-col gap-3 relative overflow-hidden shadow-sm",
                                 activeIdentityId === identity.id 
-                                  ? "bg-emerald-500/5 border-emerald-500/30" 
-                                  : "bg-black/40 border-zinc-800 hover:border-zinc-700"
+                                  ? "bg-emerald-500/[0.03] border-emerald-500/30" 
+                                  : "bg-surface-container border-outline/10 hover:border-outline/30"
                               )}
                             >
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2.5">
                                 <img 
                                   src={identity.settings.profile.picture} 
                                   alt="" 
-                                  className="w-12 h-12 rounded-xl bg-zinc-800 border border-zinc-700 object-cover"
+                                  className="w-10 h-10 rounded-sm bg-surface-container-high border border-outline/10 object-cover shadow-sm"
                                   crossOrigin="anonymous"
                                 />
                                 <div className="min-w-0 flex-1">
-                                  <h4 className="text-base font-bold text-white truncate">{identity.name}</h4>
-                                  <p className="text-[10px] text-zinc-500 font-mono truncate">
+                                  <h4 className="text-sm font-black text-on-surface truncate leading-tight">{identity.name}</h4>
+                                  <p className="text-xs text-on-surface-variant font-mono truncate">
                                     {identity.npub 
                                       ? identity.npub.substring(0, 14) 
                                       : nip19.npubEncode(getPublicKey(nip19.decode(identity.nsec).data as any)).substring(0, 14)}...
@@ -3167,71 +3147,75 @@ export default function App() {
                                   <button 
                                     onClick={() => loadIdentity(identity)}
                                     className={cn(
-                                      "p-2 rounded-xl transition-all shadow-lg",
+                                      "p-1.5 rounded-sm transition-all shadow-md",
                                       activeIdentityId === identity.id 
                                         ? "bg-emerald-500 text-black" 
-                                        : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                                        : "bg-surface-container-high text-on-surface-variant hover:text-white border border-outline/10"
                                     )}
-                                    title="Load to Main UI"
+                                    title="Load Settings"
                                   >
-                                    <SettingsIcon className="w-4 h-4" />
+                                    <SettingsIcon className="w-3.5 h-3.5" />
                                   </button>
                                   <button
                                     onClick={() => isRunning(identity.id) ? stopBot(identity.id) : startBot(identity)}
                                     disabled={!identity.settings.targetNpub && !identity.settings.proactive?.enabled}
                                     className={cn(
-                                      "p-2 rounded-xl transition-all shadow-lg",
+                                      "p-1.5 rounded-sm transition-all shadow-md",
                                       isRunning(identity.id)
                                         ? "bg-red-500 text-white hover:bg-red-600"
                                         : (!identity.settings.targetNpub && !identity.settings.proactive?.enabled)
-                                          ? "bg-zinc-800 text-zinc-600 cursor-not-allowed"
-                                          : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black"
+                                          ? "bg-surface-container-high text-on-surface-variant/40 cursor-not-allowed"
+                                          : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black border border-emerald-500/20"
                                     )}                                    title={isRunning(identity.id) ? "Stop Bot" : "Start Bot"}
                                   >
-                                    {isRunning(identity.id) ? <Square className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
+                                    {isRunning(identity.id) ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
                                   </button>
                                   <button 
                                     onClick={() => deleteIdentity(identity.id)}
-                                    className="p-2 bg-zinc-800 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-lg"
+                                    className="p-1.5 bg-surface-container-high text-on-surface-variant hover:text-red-400 rounded-sm transition-all shadow-md border border-outline/10"
                                     title="Delete"
                                   >
-                                    <Trash2 className="w-4 h-4" />
+                                    <Trash2 className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
                               </div>
 
-                              {/* Stats Infocard */}
-                              <div className="grid grid-cols-2 gap-2 p-3 bg-black/40 border border-zinc-800/50 rounded-2xl">
-                                <div className="space-y-0.5 border-r border-zinc-800/50 pr-2">
-                                  <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Sent</p>
-                                  <div className="flex items-center gap-3">
-                                    <div className="flex items-center gap-1" title="Original Notes">
-                                      <FileText className="w-2.5 h-2.5 text-blue-500" />
-                                      <span className="text-xs font-bold text-zinc-300">{sumStats(identity.stats?.proactiveNotesSent)}</span>
+                              {/* Stats Infocard - Single Line Layout */}
+                              <div className="flex items-center gap-3 p-2 bg-surface rounded-sm border border-outline/5 shadow-inner">
+                                <div className="flex items-center gap-2.5">
+                                  <span className="text-xs font-black text-on-surface-variant uppercase tracking-widest mr-0.5">Sent</span>
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1" title="Notes Sent">
+                                      <FileText className="w-3 h-3 text-blue-400/60" />
+                                      <span className="text-xs font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.proactiveNotesSent)}</span>
                                     </div>
                                     <div className="flex items-center gap-1" title="Replies Sent">
-                                      <MessageSquare className="w-2.5 h-2.5 text-emerald-500" />
-                                      <span className="text-xs font-bold text-zinc-300">{sumStats(identity.stats?.repliesSent)}</span>
+                                      <MessageSquare className="w-3 h-3 text-emerald-400/60" />
+                                      <span className="text-xs font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.repliesSent)}</span>
                                     </div>
                                     <div className="flex items-center gap-1" title="Reactions Sent">
-                                      <Heart className="w-2.5 h-2.5 text-pink-500" />
-                                      <span className="text-xs font-bold text-zinc-300">{sumStats(identity.stats?.reactionsSent)}</span>
+                                      <Heart className="w-3 h-3 text-pink-400/60" />
+                                      <span className="text-xs font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.reactionsSent)}</span>
                                     </div>
                                     <div className="flex items-center gap-1" title="Reposts Sent">
-                                      <RefreshCw className="w-2.5 h-2.5 text-purple-500" />
-                                      <span className="text-xs font-bold text-zinc-300">{sumStats(identity.stats?.repostsSent)}</span>
+                                      <RefreshCw className="w-3 h-3 text-purple-400/60" />
+                                      <span className="text-xs font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.repostsSent)}</span>
                                     </div>
-                                  </div>                                </div>
-                                <div className="space-y-0.5 pl-1">
-                                  <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Received</p>
-                                  <div className="flex items-center gap-3">
-                                    <div className="flex items-center gap-1" title="Replies Received">
-                                      <MessageSquare className="w-2.5 h-2.5 text-emerald-500 fill-current opacity-20" />
-                                      <span className="text-xs font-bold text-zinc-300">{sumStats(identity.stats?.repliesReceived)}</span>
+                                  </div>
+                                </div>
+                                
+                                <div className="w-px h-3 bg-outline/10" />
+
+                                <div className="flex items-center gap-2.5">
+                                  <span className="text-xs font-black text-on-surface-variant uppercase tracking-widest mr-0.5">Rcvd</span>
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1" title="Mentions Received">
+                                      <MessageSquare className="w-3 h-3 text-emerald-500 fill-emerald-500/10" />
+                                      <span className="text-xs font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.repliesReceived)}</span>
                                     </div>
                                     <div className="flex items-center gap-1" title="Reactions Received">
-                                      <Heart className="w-2.5 h-2.5 text-pink-500 fill-current opacity-20" />
-                                      <span className="text-xs font-bold text-zinc-300">{sumStats(identity.stats?.reactionsReceived)}</span>
+                                      <Heart className="w-3 h-3 text-pink-500 fill-pink-500/10" />
+                                      <span className="text-xs font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.reactionsReceived)}</span>
                                     </div>
                                   </div>
                                 </div>
@@ -3240,23 +3224,23 @@ export default function App() {
                               {/* Unified Status Bar at Bottom */}
                               {(activeIdentityId === identity.id || isRunning(identity.id)) && (
                                 <div className={cn(
-                                  "mt-auto -mx-4 -mb-4 px-4 py-2.5 border-t flex items-center justify-between",
+                                  "mt-auto -mx-3 -mb-3 px-3 py-1.5 border-t flex items-center justify-between transition-colors",
                                   isRunning(identity.id) 
                                     ? "bg-emerald-500/10 border-emerald-500/20" 
-                                    : "bg-emerald-500/5 border-emerald-500/10"
+                                    : "bg-surface-container-high border-outline/10"
                                 )}>
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-1.5">
                                     {isRunning(identity.id) ? (
-                                      <div className="flex items-center gap-2">
-                                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.6)]" />
-                                        <span className="text-[11px] font-black uppercase tracking-widest text-emerald-500">Live</span>
+                                      <div className="flex items-center gap-1.5">
+                                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
+                                        <span className="text-xs font-black uppercase tracking-widest text-emerald-500">Live</span>
                                       </div>
                                     ) : (
-                                      <span className="text-[11px] font-black uppercase tracking-widest text-emerald-500/60">Focused</span>
+                                      <span className="text-xs font-black uppercase tracking-widest text-emerald-500/60">Focused</span>
                                     )}
                                   </div>
 
-                                  <div className="flex items-center gap-2 min-w-0">
+                                  <div className="flex items-center gap-1.5 min-w-0 max-w-[60%]">
                                     {(() => {
                                       const targetPk = (() => {
                                         try { 
@@ -3268,22 +3252,21 @@ export default function App() {
                                       return (
                                         <>
                                           {targetPk ? (
-                                            <>
-                                              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter shrink-0">Target:</span>
+                                            <div className="flex items-center gap-1.5 min-w-0">
                                               <img 
                                                 src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${targetPk}`} 
-                                                className="w-5 h-5 rounded-full object-cover border border-zinc-700 shrink-0 shadow-md" 
+                                                className="w-4 h-4 rounded-sm object-cover border border-outline/10 shrink-0 shadow-sm" 
                                                 alt=""
                                                 crossOrigin="anonymous"
                                               />
-                                              <span className="text-[11px] font-bold text-zinc-300 truncate tracking-tight">
+                                              <span className="text-xs font-bold text-on-surface-variant truncate tracking-tight">
                                                 {identity.settings.targetName || profile?.name || identity.settings.targetNpub.substring(0, 8)}
                                               </span>
-                                            </>
+                                            </div>
                                           ) : (
-                                            <div className="flex items-center gap-1.5 opacity-50">
-                                              <Activity className="w-3 h-3 text-emerald-500" />
-                                              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500">Self-Directed</span>
+                                            <div className="flex items-center gap-1 opacity-40">
+                                              <Activity className="w-2.5 h-2.5 text-emerald-500" />
+                                              <span className="text-xs font-black uppercase tracking-tighter text-emerald-500">Self</span>
                                             </div>
                                           )}
                                         </>
@@ -3299,74 +3282,74 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="flex-1 flex flex-col min-w-0">
-                    <div className="p-4 border-b border-zinc-800/50 flex justify-between items-center bg-black/20">
-                      <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Community Marketplace</p>
+                    <div className="px-4 py-2 border-b border-outline/10 flex justify-between items-center bg-surface-container-low shadow-sm">
+                      <p className="text-xs text-on-surface-variant font-bold uppercase tracking-widest ml-1">Community Marketplace</p>
                       <div className="flex items-center gap-3">
                         {!userPubkey && (
                           <button 
                             onClick={handleNip07Login}
-                            className="text-[10px] font-bold text-emerald-500 hover:underline uppercase tracking-widest"
+                            className="text-xs font-bold text-emerald-500 hover:underline uppercase tracking-widest"
                           >
                             Sign In to Publish
                           </button>
                         )}
-                        <span className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest">Kind 38752</span>
+                        <span className="text-xs text-on-surface-variant/40 font-bold uppercase tracking-widest">Kind 38752</span>
                       </div>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                    <div className="flex-1 overflow-y-auto p-3 custom-scrollbar bg-surface">
                       {isDiscovering && communityPersonas.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center space-y-4 opacity-40">
+                        <div className="h-full flex flex-col items-center justify-center space-y-4 opacity-30 text-on-surface">
                           <RefreshCw className="w-12 h-12 animate-spin text-emerald-500" />
                           <p className="text-xs font-bold uppercase tracking-widest">Scanning Network...</p>
                         </div>
                       ) : communityPersonas.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-30">
+                        <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-20 text-on-surface">
                           <Sparkles className="w-12 h-12" />
-                          <p className="text-sm font-medium italic">No community personas found.</p>
+                          <p className="text-xs font-bold uppercase tracking-widest italic">No community personas found.</p>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                           {communityPersonas.map((persona) => (
                             <div 
                               key={persona.id}
-                              className="group bg-black/40 border border-zinc-800 rounded-3xl hover:border-emerald-500/30 transition-all flex min-h-[160px] overflow-hidden"
+                              className="group bg-surface-container border border-outline/10 rounded-sm hover:border-outline/30 transition-all flex min-h-[150px] overflow-hidden shadow-sm"
                             >
                               {/* Left Content Area */}
-                              <div className="flex-1 flex flex-col p-4 min-w-0">
-                                <div className="flex items-center gap-3 mb-3">
+                              <div className="flex-1 flex flex-col p-3 min-w-0">
+                                <div className="flex items-center gap-2.5 mb-2">
                                   <img 
                                     src={persona.settings.profile.picture} 
                                     alt="" 
-                                    className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 object-cover"
+                                    className="w-10 h-10 rounded-sm bg-surface-container-high border border-outline/10 object-cover shadow-sm"
                                     crossOrigin="anonymous"
                                   />
                                   <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-1.5 mb-1">
-                                      <span className="text-[8px] font-bold uppercase tracking-tighter px-1 py-0.5 bg-purple-500/10 text-purple-400 rounded-md border border-purple-500/20 whitespace-nowrap">
+                                    <div className="flex items-center gap-1.5 mb-0.5">
+                                      <span className="text-xs font-bold uppercase tracking-tighter px-1 py-0.5 bg-tertiary/10 text-tertiary rounded-none border border-tertiary/20 whitespace-nowrap">
                                         {SUPPORTED_MODELS.find(m => m.id === persona.settings.modelId)?.name.split(' ').pop() || '270M'}
                                       </span>
-                                      <h4 className="text-sm font-bold text-white truncate">{persona.settings.profile.name}</h4>
+                                      <h4 className="text-sm font-black text-on-surface truncate leading-tight">{persona.settings.profile.name}</h4>
                                     </div>
-                                    <div className="flex items-center gap-1.5 opacity-90 group/author">
-                                      <span className="text-[10px] text-zinc-500 font-medium">by</span>
+                                    <div className="flex items-center gap-1 opacity-80 group/author">
+                                      <span className="text-xs text-on-surface-variant font-medium">by</span>
                                       <img 
                                         src={communityProfiles[persona.author]?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${persona.author}`} 
                                         alt="Creator" 
-                                        className="w-3.5 h-3.5 rounded-full bg-zinc-800 border border-zinc-700/50"
+                                        className="w-3.5 h-3.5 rounded-sm bg-surface-container-high border border-outline/10"
                                         crossOrigin="anonymous"
                                       />
-                                      <p className="text-[11px] text-zinc-300 font-bold truncate group-hover/author:text-emerald-400 transition-colors underline underline-offset-2 decoration-zinc-700 group-hover/author:decoration-emerald-500/50">
+                                      <p className="text-xs text-on-surface font-bold truncate group-hover/author:text-emerald-400 transition-colors">
                                         {communityProfiles[persona.author]?.name || `${persona.author.substring(0, 8)}...`}
                                       </p>
                                     </div>
                                   </div>
                                 </div>
 
-                                <p className="text-[11px] text-zinc-400 line-clamp-2 italic leading-snug flex-1">
+                                <p className="text-xs text-on-surface-variant line-clamp-2 italic leading-snug flex-1 px-1">
                                   {persona.settings.profile.about}
                                 </p>
 
-                                <div className="pt-3 flex items-center gap-2">
+                                <div className="pt-2 flex items-center gap-1.5">
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -3378,48 +3361,48 @@ export default function App() {
                                       });
                                       setShowZapDialog(true);
                                     }}
-                                    className="p-2 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-500 hover:bg-amber-500 hover:text-black hover:border-amber-500 transition-all shadow-lg"
+                                    className="p-1.5 bg-amber-500/10 border border-amber-500/20 rounded-sm text-amber-500 hover:bg-amber-500 hover:text-black transition-all shadow-sm"
                                     title="Send Zap"
                                   >
-                                    <Zap className="w-4 h-4 fill-current" />
+                                    <Zap className="w-3.5 h-3.5 fill-current" />
                                   </button>
                                   <button
                                     onClick={() => importPersona(persona)}
-                                    className="flex-1 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-[10px] font-bold uppercase tracking-widest text-zinc-300 hover:bg-emerald-500 hover:text-black hover:border-emerald-500 transition-all shadow-lg"
+                                    className="flex-1 py-1.5 bg-surface-container-high border border-outline/10 rounded-sm text-xs font-bold uppercase tracking-widest text-on-surface hover:bg-emerald-500 hover:text-black hover:border-emerald-500 transition-all shadow-sm"
                                   >
-                                    Import Persona
+                                    Import
                                   </button>
                                   {userPubkey === persona.author && (
                                     <button
                                       onClick={() => unpublishPersona(persona.event)}
-                                      className="p-2 bg-red-900/20 border border-red-500/20 rounded-xl text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                                      className="p-1.5 bg-red-500/10 border border-red-500/20 rounded-sm text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm"
                                       title="Unpublish"
                                     >
-                                      <Trash2 className="w-4 h-4" />
+                                      <Trash2 className="w-3.5 h-3.5" />
                                     </button>
                                   )}
                                 </div>
                               </div>
 
                               {/* Right Vote Bar */}
-                              <div className="w-12 flex flex-col items-center justify-between py-4 bg-black/40 border-l border-zinc-800/50">
+                              <div className="w-10 flex flex-col items-center justify-between py-3 bg-surface-container-low border-l border-outline/10">
                                 <button 
                                   onClick={(e) => { e.stopPropagation(); handlePersonaVote(persona.event, '+'); }}
                                   className={cn(
-                                    "p-2 rounded-xl transition-all",
+                                    "p-1.5 rounded-sm transition-all",
                                     personaVotes[persona.id]?.userVote === '+'
-                                      ? "text-emerald-500 bg-emerald-500/10"
-                                      : "text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800"
+                                      ? "text-emerald-500 bg-emerald-500/10 border border-emerald-500/20"
+                                      : "text-on-surface-variant/40 hover:text-on-surface hover:bg-surface-container-high"
                                   )}
                                   title="Upvote"
                                 >
-                                  <ChevronUp className="w-5 h-5" />
+                                  <ChevronUp className="w-4 h-4" />
                                 </button>
                                 
                                 <span className={cn(
                                   "text-xs font-black font-mono tracking-tighter",
                                   (personaVotes[persona.id]?.up || 0) - (personaVotes[persona.id]?.down || 0) > 0 ? "text-emerald-500" :
-                                  (personaVotes[persona.id]?.up || 0) - (personaVotes[persona.id]?.down || 0) < 0 ? "text-red-500" : "text-zinc-600"
+                                  (personaVotes[persona.id]?.up || 0) - (personaVotes[persona.id]?.down || 0) < 0 ? "text-red-500" : "text-on-surface-variant/40"
                                 )}>
                                   {(personaVotes[persona.id]?.up || 0) - (personaVotes[persona.id]?.down || 0)}
                                 </span>
@@ -3427,14 +3410,14 @@ export default function App() {
                                 <button 
                                   onClick={(e) => { e.stopPropagation(); handlePersonaVote(persona.event, '-'); }}
                                   className={cn(
-                                    "p-2 rounded-xl transition-all",
+                                    "p-1.5 rounded-sm transition-all",
                                     personaVotes[persona.id]?.userVote === '-'
-                                      ? "text-red-500 bg-red-500/10"
-                                      : "text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800"
+                                      ? "text-red-500 bg-red-500/10 border border-red-500/20"
+                                      : "text-on-surface-variant/40 hover:text-on-surface hover:bg-surface-container-high"
                                   )}
                                   title="Downvote"
                                 >
-                                  <ChevronDown className="w-5 h-5" />
+                                  <ChevronDown className="w-4 h-4" />
                                 </button>
                               </div>
                             </div>
@@ -3446,77 +3429,78 @@ export default function App() {
                 )}
               </div>
 
-              <div className="p-3 bg-zinc-950 border-t border-zinc-800 flex justify-between items-center px-6">
-                <div className="flex items-center gap-4 text-[10px] text-zinc-600 font-bold uppercase tracking-widest">
+              <div className="p-2 px-4 bg-surface-container-low border-t border-outline/10 flex justify-between items-center">
+                <div className="flex items-center gap-4 text-xs text-on-surface-variant font-bold uppercase tracking-widest opacity-50">
                   <div className="flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    Local Database Sync
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
+                    Database Active
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-purple-500" />
-                    Nostr Discovery Active
+                    <div className="w-1.5 h-1.5 rounded-full bg-purple-500 shadow-[0_0_5px_rgba(168,85,247,0.5)]" />
+                    Relay Discovery
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
-                  <span className="text-[10px] text-zinc-700 font-bold uppercase tracking-widest">v0.2.0</span>
-                  <p className="text-[10px] text-zinc-500">Press ESC or click close to return</p>
+                  <span className="text-xs text-on-surface-variant/40 font-bold uppercase tracking-widest">v0.2.0</span>
+                  <p className="text-xs text-on-surface-variant/60 font-medium">ESC to return</p>
                 </div>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
       {/* Add New Identity Selection Dialog */}
       <AnimatePresence>
         {showAddIdentityDialog && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/90 backdrop-blur-md">
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/90 backdrop-blur-sm">
             <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              initial={{ opacity: 0, scale: 0.99, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl"
+              exit={{ opacity: 0, scale: 0.99, y: 10 }}
+              className="bg-surface border border-outline/10 rounded-sm w-full max-w-sm overflow-hidden shadow-2xl"
             >
-              <div className="p-6 border-b border-zinc-800 flex items-center justify-between">
-                <h3 className="text-xl font-semibold text-white">Create New Bot</h3>
-                <button onClick={() => setShowAddIdentityDialog(false)} className="text-zinc-500 hover:text-white transition-colors">
+              <div className="p-4 border-b border-outline/10 flex items-center justify-between bg-surface-container-low">
+                <h3 className="text-base font-black text-white uppercase tracking-tight ml-1">Create New Bot</h3>
+                <button onClick={() => setShowAddIdentityDialog(false)} className="p-1 hover:bg-surface-container-high rounded-sm text-on-surface-variant hover:text-white transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
               
-              <div className="p-8 space-y-4">
+              <div className="p-4 space-y-3 bg-surface">
                 <button 
                   onClick={() => createNewIdentity('waifu')}
-                  className="w-full flex items-center gap-4 p-4 bg-pink-500/10 border border-pink-500/20 rounded-2xl hover:bg-pink-500/20 transition-all text-left group"
+                  className="w-full flex items-center gap-4 p-3 bg-surface-container border border-outline/10 rounded-sm hover:border-pink-500/30 transition-all text-left group shadow-sm"
                 >
-                  <div className="w-12 h-12 bg-pink-500 rounded-xl flex items-center justify-center shadow-lg shadow-pink-500/20 group-hover:scale-110 transition-transform">
-                    <Wand2 className="w-6 h-6 text-white" />
+                  <div className="w-10 h-10 bg-pink-500/10 border border-pink-500/20 rounded-sm flex items-center justify-center text-pink-500 group-hover:scale-105 transition-transform">
+                    <Wand2 className="w-5 h-5" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-base font-bold text-white">Random Waifu</div>
-                    <div className="text-xs text-pink-400/70 font-medium">Instant bubbly personality & profile.</div>
+                    <div className="text-sm font-black text-on-surface uppercase tracking-wide">Random Waifu</div>
+                    <div className="text-xs text-on-surface-variant font-bold uppercase tracking-tighter">Instant Profile & Persona</div>
                   </div>
                 </button>
 
                 <button 
                   onClick={() => createNewIdentity('custom')}
-                  className="w-full flex items-center gap-4 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl hover:bg-emerald-500/20 transition-all text-left group"
+                  className="w-full flex items-center gap-4 p-3 bg-surface-container border border-outline/10 rounded-sm hover:border-emerald-500/30 transition-all text-left group shadow-sm"
                 >
-                  <div className="w-12 h-12 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/20 group-hover:scale-110 transition-transform">
-                    <Plus className="w-6 h-6 text-black" />
+                  <div className="w-10 h-10 bg-emerald-500/10 border border-emerald-500/20 rounded-sm flex items-center justify-center text-emerald-500 group-hover:scale-105 transition-transform">
+                    <Plus className="w-5 h-5" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-base font-bold text-white">Custom Bot</div>
-                    <div className="text-xs text-emerald-400/70 font-medium">Start fresh and build your own.</div>
+                    <div className="text-sm font-black text-on-surface uppercase tracking-wide">Custom Bot</div>
+                    <div className="text-xs text-on-surface-variant font-bold uppercase tracking-tighter">Build from scratch</div>
                   </div>
                 </button>
               </div>
               
-              <div className="p-6 bg-zinc-950 flex justify-center">
+              <div className="p-3 bg-surface-container-low flex justify-center border-t border-outline/10">
                 <button 
                   onClick={() => setShowAddIdentityDialog(false)}
-                  className="text-xs font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-colors"
+                  className="text-xs font-black uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors"
                 >
-                  Cancel
+                  Return
                 </button>
               </div>
             </motion.div>
@@ -3524,136 +3508,135 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Settings Dialog */}
       <AnimatePresence>
         {showSettingsDialog && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.99 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+              exit={{ opacity: 0, scale: 0.99 }}
+              className="bg-surface border border-outline/10 rounded-sm w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
             >
-              <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-white">Bot Configuration</h3>
-                <button onClick={() => setShowSettingsDialog(false)} className="text-zinc-500 hover:text-white transition-colors">
+              <div className="p-3 border-b border-outline/10 flex items-center justify-between bg-surface-container-low">
+                <h3 className="text-sm font-black text-white uppercase tracking-tight ml-1">Bot Configuration</h3>
+                <button onClick={() => setShowSettingsDialog(false)} className="p-1 hover:bg-surface-container-high rounded-sm text-on-surface-variant hover:text-white transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              
-              <div className="flex border-b border-zinc-800">
-                <button 
+
+              <div className="flex border-b border-outline/10 bg-surface-container-low">
+                <button
                   onClick={() => setSettingsTab('general')}
                   className={cn(
-                    "flex-1 py-3 text-xs font-bold uppercase tracking-widest transition-all",
-                    settingsTab === 'general' ? "text-emerald-500 border-b-2 border-emerald-500" : "text-zinc-500 hover:text-zinc-300"
+                    "flex-1 py-2 text-xs font-black uppercase tracking-widest transition-all border-b-2",
+                    settingsTab === 'general' ? "text-emerald-500 border-emerald-500 bg-emerald-500/5" : "text-on-surface-variant border-transparent hover:text-on-surface hover:bg-surface-container-high"
                   )}
                 >
                   General
                 </button>
-                <button 
+                <button
                   onClick={() => setSettingsTab('ai')}
                   className={cn(
-                    "flex-1 py-3 text-xs font-bold uppercase tracking-widest transition-all",
-                    settingsTab === 'ai' ? "text-emerald-500 border-b-2 border-emerald-500" : "text-zinc-500 hover:text-zinc-300"
+                    "flex-1 py-2 text-xs font-black uppercase tracking-widest transition-all border-b-2",
+                    settingsTab === 'ai' ? "text-emerald-500 border-emerald-500 bg-emerald-500/5" : "text-on-surface-variant border-transparent hover:text-on-surface hover:bg-surface-container-high"
                   )}
                 >
-                  AI Brain
+                  AI Models
                 </button>
               </div>
 
-              <div className="p-4 space-y-4 overflow-y-auto custom-scrollbar">
+              <div className="flex-1 overflow-y-auto p-4 space-y-5 custom-scrollbar bg-surface">
                 {settingsTab === 'general' ? (
                   <>
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-zinc-400">
-                        <Clock className="w-4 h-4" />
-                        <h4 className="text-xs font-bold uppercase tracking-widest">Reply Delay (Seconds)</h4>
+                      <div className="flex items-center gap-2 text-on-surface-variant ml-1">
+                        <Clock className="w-3.5 h-3.5" />
+                        <h4 className="text-xs font-black uppercase tracking-widest">Reply Delay (Seconds)</h4>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <label className="text-xs text-zinc-500">Minimum</label>
-                          <input 
+                          <label className="text-xs font-bold uppercase tracking-tighter text-on-surface-variant ml-1">Minimum</label>
+                          <input
                             type="number"
                             value={settings.minDelay}
                             onChange={(e) => setSettings(s => ({ ...s, minDelay: parseInt(e.target.value) || 0 }))}
-                            className="w-full bg-black border border-zinc-800 rounded-xl px-3 py-1.5 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
+                            className="w-full bg-surface-container border border-outline/20 rounded-sm px-3 py-1.5 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors shadow-inner"
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs text-zinc-500">Maximum</label>
-                          <input 
+                          <label className="text-xs font-bold uppercase tracking-tighter text-on-surface-variant ml-1">Maximum</label>
+                          <input
                             type="number"
                             value={settings.maxDelay}
                             onChange={(e) => setSettings(s => ({ ...s, maxDelay: parseInt(e.target.value) || 0 }))}
-                            className="w-full bg-black border border-zinc-800 rounded-xl px-3 py-1.5 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
+                            className="w-full bg-surface-container border border-outline/20 rounded-sm px-3 py-1.5 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors shadow-inner"
                           />
                         </div>
                       </div>
                     </div>
 
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-zinc-400">
-                        <Zap className="w-4 h-4 text-amber-400" />
-                        <h4 className="text-xs font-bold uppercase tracking-widest">Payments</h4>
+                      <div className="flex items-center gap-2 text-on-surface-variant ml-1">
+                        <Zap className="w-3.5 h-3.5 text-amber-500" />
+                        <h4 className="text-xs font-black uppercase tracking-widest">Global Payments</h4>
                       </div>
                       <div className="space-y-2">
                         <label className={cn(
-                          "flex items-center justify-between p-3 bg-black border border-zinc-800 rounded-2xl transition-colors",
-                          (!curatorProfile?.lud16) ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:border-zinc-700"
+                          "flex items-center justify-between p-3 bg-surface-container-low border border-outline/10 rounded-sm transition-colors shadow-sm",
+                          (!curatorProfile?.lud16) ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:bg-surface-container"
                         )}>
                           <div className="space-y-0.5">
-                            <div className="text-sm font-medium text-white">Use Curator Lightning Address</div>
-                            <div className="text-[11px] text-zinc-500">
-                              {!userPubkey ? "Sign in to sync your lightning address." :
-                               curatorProfile === null ? "Fetching curator profile..." :
-                               curatorProfile?.lud16
-                                ? `Overrides bot address with ${curatorProfile.lud16} when publishing.`
-                                : "No lightning address found in your Nostr profile."}
-                            </div>                          </div>
+                            <div className="text-[13px] font-bold text-on-surface uppercase tracking-wider">Curator Split</div>
+                            <div className="text-xs text-on-surface-variant">
+                              {!userPubkey ? "Sign in to enable lightning sync." :
+                               curatorProfile === null ? "Fetching profile..." :
+                               !curatorProfile?.lud16 ? "No lightning address found." :
+                               "Direct splits to active curator."}
+                            </div>
+                          </div>
                           <div className={cn(
-                            "w-8 h-4 rounded-full transition-all relative",
-                            globalUseCuratorLightning ? "bg-emerald-500" : "bg-zinc-800"
+                            "w-8 h-4 rounded-sm transition-all relative border border-outline/20",
+                            globalUseCuratorLightning ? "bg-emerald-500/40" : "bg-surface-container-high"
                           )}>
-                            <input 
+                            <input
                               type="checkbox"
                               checked={globalUseCuratorLightning}
-                              disabled={!curatorProfile?.lud16}
                               onChange={(e) => setGlobalUseCuratorLightning(e.target.checked)}
+                              disabled={!curatorProfile?.lud16}
                               className="sr-only"
                             />
                             <div className={cn(
-                              "absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all",
-                              globalUseCuratorLightning ? "left-4.5" : "left-0.5"
+                              "absolute top-0.5 w-2.5 h-2.5 rounded-none transition-all border border-outline/30",
+                              globalUseCuratorLightning ? "left-4.5 bg-emerald-400" : "left-0.5 bg-on-surface-variant"
                             )} />
                           </div>
                         </label>
                       </div>
                     </div>
 
-                    <div className="pt-4 border-t border-zinc-800/50 space-y-3">
-                      <div className="flex items-center gap-2 text-red-500/80">
-                        <AlertCircle className="w-4 h-4" />
-                        <h4 className="text-xs font-bold uppercase tracking-widest">Danger Zone</h4>
+                    <div className="pt-3 border-t border-outline/10 space-y-2">
+                      <div className="flex items-center gap-2 text-red-500/80 ml-1">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <h4 className="text-xs font-black uppercase tracking-widest">Danger Zone</h4>
                       </div>
                       <button
                         onClick={handleFreshStart}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-red-900/20 text-red-500 border border-red-500/20 rounded-xl font-bold text-xs hover:bg-red-500 hover:text-white transition-all uppercase tracking-widest shadow-lg shadow-red-500/5"
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-500/5 text-red-500 border border-red-500/20 rounded-sm font-bold text-xs hover:bg-red-500 hover:text-white transition-all uppercase tracking-widest shadow-sm"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         Fresh Start
                       </button>
-                      <p className="text-[10px] text-zinc-600 font-medium text-center italic">Clears all local data and resets the app.</p>
+                      <p className="text-xs text-on-surface-variant/40 font-bold text-center uppercase tracking-tighter">Clears all local data and resets the app.</p>
                     </div>
                   </>
                 ) : (
                   <>
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-zinc-400">
-                        <Brain className="w-4 h-4" />
-                        <h4 className="text-xs font-bold uppercase tracking-widest text-zinc-500">AI Model</h4>
+                      <div className="flex items-center gap-2 text-on-surface-variant ml-1">
+                        <Brain className="w-3.5 h-3.5" />
+                        <h4 className="text-xs font-black uppercase tracking-widest">AI Model Library</h4>
                       </div>
-                      <div className="space-y-3">
+                      <div className="space-y-2">
                         <div className="grid grid-cols-1 gap-2">
                           {SUPPORTED_MODELS.map((model) => {
                             const isSelected = settings.modelId === model.id;
@@ -3664,36 +3647,36 @@ export default function App() {
                               <div
                                 key={model.id}
                                 className={cn(
-                                  "p-3 rounded-2xl border transition-all flex flex-col gap-3",
+                                  "p-3 rounded-sm border transition-all flex flex-col gap-2 shadow-sm",
                                   isSelected
-                                    ? "bg-emerald-500/5 border-emerald-500/30"
-                                    : "bg-black border-zinc-800"
+                                    ? "bg-emerald-500/[0.03] border-emerald-500/30"
+                                    : "bg-surface-container border-outline/10"
                                 )}
                               >
-                                <div className="flex justify-between items-start">
+                                <div className="flex justify-between items-start gap-4">
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-2 mb-0.5">
                                       <span className={cn(
-                                        "text-sm font-bold uppercase tracking-widest",
-                                        isSelected ? "text-emerald-500" : "text-white"
+                                        "text-sm font-black uppercase tracking-tight",
+                                        isSelected ? "text-emerald-500" : "text-on-surface"
                                       )}>
                                         {model.name}
                                       </span>
-                                      <span className="text-[10px] font-mono text-zinc-500 bg-zinc-800/50 px-1.5 py-0.5 rounded leading-none">{model.size}</span>
+                                      <span className="text-xs font-mono font-bold text-on-surface-variant/60 bg-surface-container-high px-1.5 rounded-none border border-outline/5 leading-none">{model.size}</span>
                                     </div>
-                                    <p className="text-[11px] text-zinc-500 leading-tight line-clamp-2">{model.description}</p>
+                                    <p className="text-xs text-on-surface-variant leading-snug italic">{model.description}</p>
                                   </div>
                                   
                                   <div className="shrink-0">
                                     {isReady ? (
-                                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-                                        <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-500">Loaded</span>
+                                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-sm">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
+                                        <span className="text-xs font-black uppercase tracking-widest text-emerald-500">Active</span>
                                       </div>
                                     ) : isLoading ? (
-                                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800 border border-zinc-700 rounded-lg">
-                                        <RefreshCw className="w-2.5 h-2.5 animate-spin text-zinc-400" />
-                                        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">{Math.round(aiProgress)}%</span>
+                                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-surface-container-high border border-outline/10 rounded-sm">
+                                        <RefreshCw className="w-3 h-3 animate-spin text-emerald-500" />
+                                        <span className="text-xs font-black uppercase tracking-widest text-on-surface-variant">{Math.round(aiProgress)}%</span>
                                       </div>
                                     ) : (
                                       <button 
@@ -3701,7 +3684,7 @@ export default function App() {
                                           setSettings(s => ({ ...s, modelId: model.id, useAI: true }));
                                           setAiStatus('loading');
                                         }}
-                                        className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors border border-zinc-700"
+                                        className="px-2.5 py-1 bg-surface-container-high hover:bg-surface-container border border-outline/10 text-on-surface-variant hover:text-on-surface rounded-sm text-xs font-black uppercase tracking-widest transition-all shadow-sm"
                                       >
                                         Load Model
                                       </button>
@@ -3709,13 +3692,13 @@ export default function App() {
                                 </div>
 
                                 {isLoading && (
-                                  <div className="space-y-1.5">
-                                    <div className="flex justify-between text-[9px] uppercase font-bold tracking-widest text-zinc-500 px-0.5">
+                                  <div className="space-y-1">
+                                    <div className="flex justify-between text-xs uppercase font-black tracking-widest text-on-surface-variant opacity-40 px-0.5">
                                       <span className="truncate max-w-[180px]">{currentLoadingFile ? `Fetching ${currentLoadingFile}...` : 'Initializing...'}</span>
                                     </div>
-                                    <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
+                                    <div className="h-1 bg-surface-container-high rounded-none overflow-hidden border border-outline/5">
                                       <div 
-                                        className="h-full bg-emerald-500 transition-all duration-300 shadow-[0_0_8px_rgba(16,185,129,0.3)]" 
+                                        className="h-full bg-emerald-500 transition-all duration-300 shadow-[0_0_5px_rgba(16,185,129,0.3)]" 
                                         style={{ width: `${aiProgress}%` }}
                                       />
                                     </div>
@@ -3730,12 +3713,12 @@ export default function App() {
                   </>
                 )}
               </div>
-              <div className="p-4 bg-zinc-950 border-t border-zinc-800 flex justify-end">
+              <div className="p-3 bg-surface-container-low border-t border-outline/10 flex justify-center">
                 <button 
                   onClick={() => setShowSettingsDialog(false)}
-                  className="px-6 py-2 bg-emerald-500 text-black rounded-full font-bold text-base hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/10"
+                  className="text-xs font-black uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors"
                 >
-                  Apply Settings
+                  Return
                 </button>
               </div>            </motion.div>
           </div>
@@ -3749,11 +3732,16 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl"
+              className="bg-surface border border-outline/10 rounded-sm w-full max-w-sm overflow-hidden shadow-2xl flex flex-col"
             >
-              <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-                <h3 className="text-base font-semibold text-white">Emoji Picker</h3>
-                <button onClick={() => setShowEmojiPickerDialog(false)} className="text-zinc-500 hover:text-white transition-colors">
+              <div className="p-4 border-b border-outline/10 flex items-center justify-between bg-surface-container-low">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 bg-emerald-500 rounded-sm flex items-center justify-center">
+                    <Sparkles className="w-4 h-4 text-black" />
+                  </div>
+                  <h3 className="text-sm font-black text-on-surface uppercase tracking-tight">Emoji Picker</h3>
+                </div>
+                <button onClick={() => setShowEmojiPickerDialog(false)} className="text-on-surface-variant/50 hover:text-on-surface transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -3764,15 +3752,15 @@ export default function App() {
                   placeholder="Search emojis (e.g. 'heart', 'smile')..."
                   value={emojiSearchQuery}
                   onChange={(e) => setEmojiSearchQuery(e.target.value)}
-                  className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2 text-base focus:outline-none focus:border-emerald-500/50 transition-colors"
+                  className="w-full bg-surface-container border border-outline/20 rounded-sm px-4 py-2 text-sm font-black text-on-surface focus:outline-none focus:border-emerald-500/50 transition-colors shadow-inner"
                   autoFocus
                 />
                 
                 <div className="max-h-64 overflow-y-auto pr-2 custom-scrollbar">
                   {!emojiSearchQuery && (
                     <div className="space-y-3">
-                      <h4 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Popular</h4>
-                      <div className="grid grid-cols-8 gap-2">
+                      <h4 className="text-xs font-black uppercase tracking-widest text-on-surface-variant/40 ml-1">Popular</h4>
+                      <div className="grid grid-cols-8 gap-1.5">
                         {POPULAR_EMOJIS.map((emoji, idx) => {
                           const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
                           const currentEmojis = [...segmenter.segment(settings.reactionEmojis)].map(s => s.segment).filter(c => c.trim() !== '');
@@ -3788,10 +3776,11 @@ export default function App() {
                                   setSettings(s => ({ ...s, reactionEmojis: [...currentEmojis, emoji].join(' ') }));
                                 }
                               }}
-                              className={cn(                                "w-9 h-9 flex items-center justify-center rounded-lg text-xl transition-all",
+                              className={cn(
+                                "w-9 h-9 flex items-center justify-center rounded-sm text-lg transition-all",
                                 isActive 
-                                  ? "bg-emerald-500/20 text-white border border-emerald-500/30 scale-110" 
-                                  : "bg-black hover:bg-zinc-800 text-zinc-400 border border-zinc-800"
+                                  ? "bg-emerald-500/20 text-white border border-emerald-500/40" 
+                                  : "bg-surface-container-high hover:bg-surface-container text-on-surface-variant border border-outline/10"
                               )}
                             >
                               {emoji}
@@ -3804,8 +3793,8 @@ export default function App() {
 
                   {emojiSearchQuery && (
                     <div className="space-y-3">
-                      <h4 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Search Results</h4>
-                      <div className="grid grid-cols-8 gap-2">
+                      <h4 className="text-xs font-black uppercase tracking-widest text-on-surface-variant/40 ml-1">Search Results</h4>
+                      <div className="grid grid-cols-8 gap-1.5">
                         {EMOJI_DATA.filter(e => e.k.includes(emojiSearchQuery.toLowerCase())).map((item, idx) => {
                           const emoji = item.c;
                           const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
@@ -3822,10 +3811,11 @@ export default function App() {
                                   setSettings(s => ({ ...s, reactionEmojis: [...currentEmojis, emoji].join(' ') }));
                                 }
                               }}
-                              className={cn(                                "w-9 h-9 flex items-center justify-center rounded-lg text-xl transition-all",
+                              className={cn(
+                                "w-9 h-9 flex items-center justify-center rounded-sm text-lg transition-all",
                                 isActive 
-                                  ? "bg-emerald-500/20 text-white border border-emerald-500/30 scale-110" 
-                                  : "bg-black hover:bg-zinc-800 text-zinc-400 border border-zinc-800"
+                                  ? "bg-emerald-500/20 text-white border border-emerald-500/40" 
+                                  : "bg-surface-container-high hover:bg-surface-container text-on-surface-variant border border-outline/10"
                               )}
                             >
                               {emoji}
@@ -3838,13 +3828,13 @@ export default function App() {
                 </div>
               </div>
               
-              <div className="p-4 bg-zinc-950 flex justify-end">
+              <div className="p-4 bg-surface-container-low border-t border-outline/10 flex justify-end">
                 <button 
                   onClick={() => {
                     setShowEmojiPickerDialog(false);
                     setEmojiSearchQuery('');
                   }}
-                  className="px-6 py-2 bg-emerald-500 text-black rounded-full font-semibold text-base hover:bg-emerald-400 transition-all"
+                  className="px-5 py-1.5 bg-emerald-500 text-black rounded-sm font-black text-xs hover:bg-emerald-400 transition-all uppercase tracking-widest shadow-md"
                 >
                   Done
                 </button>
@@ -3857,34 +3847,34 @@ export default function App() {
       {/* Zap Dialog */}
       <AnimatePresence>
         {showZapDialog && zapData && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-6 bg-black/90 backdrop-blur-xl">
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col"
+              className="bg-surface border border-outline/10 rounded-sm w-full max-w-sm overflow-hidden shadow-2xl flex flex-col"
             >
-              <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-black/20">
+              <div className="p-4 border-b border-outline/10 flex items-center justify-between bg-surface-container-low">
                 <div className="flex items-center gap-2">
-                  <Zap className="w-5 h-5 text-amber-500 fill-current" />
-                  <h3 className="text-xl font-bold text-white tracking-tight">Send Zap</h3>
+                  <Zap className="w-4 h-4 text-amber-500 fill-current" />
+                  <h3 className="text-sm font-black text-on-surface uppercase tracking-tight">Send Zap</h3>
                 </div>
-                <button onClick={() => setShowZapDialog(false)} className="text-zinc-500 hover:text-white transition-colors">
-                  <X className="w-6 h-6" />
+                <button onClick={() => setShowZapDialog(false)} className="text-on-surface-variant/50 hover:text-on-surface transition-colors">
+                  <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="p-6 space-y-6">
-                <div className="flex items-center gap-3 p-3 bg-black/40 border border-zinc-800 rounded-2xl">
+              <div className="p-4 space-y-4 bg-surface">
+                <div className="flex items-center gap-2.5 p-2.5 bg-surface-container-low border border-outline/10 rounded-sm shadow-inner">
                   <img 
                     src={communityProfiles[zapData.author]?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${zapData.author}`} 
                     alt="" 
-                    className="w-8 h-8 rounded-full border border-zinc-700"
+                    className="w-8 h-8 rounded-sm object-cover border border-outline/10 shadow-sm"
                     crossOrigin="anonymous"
                   />
                   <div className="min-w-0">
-                    <p className="text-xs font-bold text-white truncate">{communityProfiles[zapData.author]?.name || 'Anonymous'}</p>
-                    <p className="text-[10px] text-amber-500 font-medium truncate uppercase tracking-tight">
+                    <p className="text-xs font-black text-on-surface truncate uppercase tracking-tight">{communityProfiles[zapData.author]?.name || 'Anonymous'}</p>
+                    <p className="text-xs text-amber-500 font-bold truncate uppercase tracking-tighter opacity-80">
                       {communityProfiles[zapData.author]?.lud16 || 'Lightning Enabled'}
                     </p>
                   </div>
@@ -3892,18 +3882,18 @@ export default function App() {
 
                 {!zapData.invoice ? (
                   <>
-                    <div className="space-y-3">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Select Amount</label>
-                      <div className="grid grid-cols-4 gap-2">
+                    <div className="space-y-2">
+                      <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Select Amount</label>
+                      <div className="grid grid-cols-4 gap-1.5">
                         {[21, 100, 1000, 5000].map(amt => (
                           <button
                             key={amt}
                             onClick={() => setZapData({ ...zapData, amount: amt })}
                             className={cn(
-                              "py-2 rounded-xl text-xs font-bold transition-all border",
+                              "py-1.5 rounded-sm text-xs font-black transition-all border uppercase tracking-tighter shadow-sm",
                               zapData.amount === amt 
-                                ? "bg-amber-500 text-black border-amber-500 shadow-lg shadow-amber-500/20" 
-                                : "bg-black/40 text-zinc-400 border-zinc-800 hover:border-zinc-700"
+                                ? "bg-amber-500/20 text-amber-500 border-amber-500/40" 
+                                : "bg-surface-container-high text-on-surface-variant border-outline/10 hover:border-outline/30"
                             )}
                           >
                             {amt}
@@ -3915,63 +3905,63 @@ export default function App() {
                           type="number"
                           value={zapData.amount}
                           onChange={(e) => setZapData({ ...zapData, amount: parseInt(e.target.value) || 0 })}
-                          className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-lg font-bold text-white focus:outline-none focus:border-amber-500/50 transition-colors pr-16"
+                          className="w-full bg-surface-container border border-outline/20 rounded-sm px-3 py-2 text-base font-black text-on-surface focus:outline-none focus:border-amber-500/50 transition-colors pr-12 shadow-inner"
                         />
-                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold text-xs">SATS</span>
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant/40 font-black text-xs uppercase tracking-widest">SATS</span>
                       </div>
                     </div>
 
-                    <div className="space-y-3">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Message (Optional)</label>
+                    <div className="space-y-2">
+                      <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Message</label>
                       <textarea 
                         value={zapData.comment}
                         onChange={(e) => setZapData({ ...zapData, comment: e.target.value })}
                         placeholder="Say something nice..."
-                        className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors resize-none h-20"
+                        className="w-full bg-surface-container border border-outline/20 rounded-sm px-3 py-2 text-sm text-on-surface focus:outline-none focus:border-amber-500/50 transition-colors resize-none h-16 shadow-inner"
                       />
                     </div>
 
                     <button
                       onClick={() => getZapInvoice(zapData.personaId, zapData.author, zapData.amount, zapData.comment)}
                       disabled={zapData.isPaying || zapData.amount <= 0}
-                      className="w-full py-4 bg-amber-500 text-black rounded-2xl font-bold text-lg hover:bg-amber-400 transition-all shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                      className="w-full py-2.5 bg-amber-500 text-black rounded-sm font-black text-xs hover:bg-amber-400 transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 uppercase tracking-widest"
                     >
                       {zapData.isPaying ? (
-                        <RefreshCw className="w-5 h-5 animate-spin" />
+                        <RefreshCw className="w-4 h-4 animate-spin" />
                       ) : (
                         <>
-                          <Zap className="w-5 h-5 fill-current" />
+                          <Zap className="w-4 h-4 fill-current" />
                           Generate Invoice
                         </>
                       )}
                     </button>
                   </>
                 ) : (
-                  <div className="flex flex-col items-center space-y-6 animate-in fade-in zoom-in duration-300">
-                    <div className="p-4 bg-white rounded-3xl shadow-2xl">
+                  <div className="flex flex-col items-center space-y-4 animate-in fade-in zoom-in duration-300">
+                    <div className="p-3 bg-white rounded-sm shadow-xl">
                       <QRCodeSVG 
                         value={zapData.invoice.toUpperCase()} 
-                        size={200}
+                        size={180}
                         level="M"
                         includeMargin={false}
                       />
                     </div>
                     
-                    <div className="text-center space-y-2">
-                      <p className="text-xs text-zinc-500 font-medium">Scan with any Bitcoin Lightning wallet</p>
-                      <div className="flex items-center gap-2">
+                    <div className="text-center space-y-2 w-full">
+                      <p className="text-xs text-on-surface-variant font-bold uppercase tracking-widest">Scan with Lightning wallet</p>
+                      <div className="flex flex-col gap-1.5">
                         <button 
                           onClick={() => {
                             navigator.clipboard.writeText(zapData.invoice!);
-                            addLog('Invoice copied to clipboard.', 'success');
+                            addLog('Invoice copied.', 'success');
                           }}
-                          className="px-4 py-2 bg-zinc-800 text-zinc-300 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-zinc-700 transition-all border border-zinc-700"
+                          className="w-full py-2 bg-surface-container-high text-on-surface-variant rounded-sm text-xs font-black uppercase tracking-widest hover:bg-surface-container transition-all border border-outline/10"
                         >
                           Copy Invoice
                         </button>
                         <a 
                           href={`lightning:${zapData.invoice}`}
-                          className="px-4 py-2 bg-amber-500 text-black rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-amber-400 transition-all"
+                          className="w-full py-2 bg-amber-500 text-black rounded-sm text-xs font-black uppercase tracking-widest hover:bg-amber-400 transition-all text-center"
                         >
                           Open Wallet
                         </a>
@@ -3983,7 +3973,7 @@ export default function App() {
                         setShowZapDialog(false);
                         setZapData(null);
                       }}
-                      className="text-zinc-500 hover:text-white text-xs font-bold uppercase tracking-widest transition-colors"
+                      className="text-on-surface-variant/40 hover:text-on-surface text-xs font-black uppercase tracking-widest transition-colors"
                     >
                       Cancel
                     </button>
@@ -3991,7 +3981,7 @@ export default function App() {
                 )}
 
                 {zapData.error && (
-                  <div className="p-3 bg-red-900/20 border border-red-500/20 rounded-xl text-red-500 text-[10px] font-bold uppercase tracking-widest text-center">
+                  <div className="p-2 bg-red-500/10 border border-red-500/20 rounded-sm text-red-500 text-xs font-black uppercase tracking-widest text-center">
                     {zapData.error}
                   </div>
                 )}
@@ -4008,17 +3998,17 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] pointer-events-none flex items-center justify-center bg-emerald-500/10 backdrop-blur-[2px]"
+            className="fixed inset-0 z-[100] pointer-events-none flex items-center justify-center bg-emerald-500/5 backdrop-blur-[1px]"
           >
             <motion.div
-              initial={{ scale: 0.5, rotate: -20 }}
-              animate={{ scale: 1.5, rotate: 0 }}
+              initial={{ scale: 0.8, rotate: -10 }}
+              animate={{ scale: 1.2, rotate: 0 }}
               className="flex flex-col items-center gap-4"
             >
-              <div className="w-24 h-24 bg-amber-500 rounded-full flex items-center justify-center shadow-[0_0_50px_rgba(245,158,11,0.5)] border-4 border-white animate-bounce">
-                <Zap className="w-12 h-12 text-black fill-current" />
+              <div className="w-20 h-20 bg-amber-500 rounded-sm flex items-center justify-center shadow-[0_0_40px_rgba(245,158,11,0.4)] border-2 border-white animate-bounce">
+                <Zap className="w-10 h-10 text-black fill-current" />
               </div>
-              <h2 className="text-4xl font-black text-white italic uppercase tracking-tighter drop-shadow-2xl">Zapped!</h2>
+              <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter drop-shadow-xl">Zapped!</h2>
             </motion.div>
           </motion.div>
         )}
@@ -4032,11 +4022,11 @@ export default function App() {
           background: transparent;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #27272a;
-          border-radius: 10px;
+          background: var(--color-surface-container-high);
+          border-radius: 0px;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #3f3f46;
+          background: var(--color-outline);
         }
       `}</style>
 
@@ -4059,7 +4049,7 @@ function OnboardingWizard({ onFinish, defaultSettings }: { onFinish: (settings: 
   const [step, setStep] = useState(1);
   const [tempSettings, setTempSettings] = useState<BotSettings>({
     ...defaultSettings,
-    modelId: 'onnx-community/SmolLM2-360M-Instruct-ONNX', // Default to balanced
+    modelId: 'onnx-community/SmolLM2-360M-Instruct-ONNX',
     profile: {
       ...defaultSettings.profile,
       name: 'My EchoBot'
@@ -4075,151 +4065,154 @@ function OnboardingWizard({ onFinish, defaultSettings }: { onFinish: (settings: 
 
   const modelCards = [
     {
-      id: 'onnx-community/gemma-3-270m-it-ONNX',
-      name: 'Lightweight',
-      modelName: 'Gemma 3 270M',
-      description: 'Fastest with the lowest memory usage. Ideal for older devices or quick, simple replies.',
-      recommended: deviceMemory > 0 && deviceMemory < 4,
-    },
-    {
       id: 'onnx-community/SmolLM2-360M-Instruct-ONNX',
       name: 'Balanced',
       modelName: 'SmolLM2 360M',
-      description: 'The sweet spot. Great performance and instruction-following for most modern desktops and laptops.',
-      recommended: (deviceMemory === 0) || (deviceMemory >= 4 && deviceMemory < 8),
+      description: 'The sweet spot. Great performance for most desktops.',
+      recommended: (deviceMemory === 0) || (deviceMemory < 8),
     },
     {
       id: 'onnx-community/Llama-3.2-1B-Instruct',
       name: 'Powerhouse',
       modelName: 'Llama 3.2 1B',
-      description: 'Superior reasoning and personality. Recommended for devices with a fast CPU and 8GB+ RAM.',
+      description: 'Superior reasoning. Recommended for 8GB+ RAM.',
       recommended: deviceMemory >= 8,
     }
   ];
 
   const personaVibes = [
-    { name: 'Helpful Assistant', prompt: MODEL_DEFAULT_PROMPTS[tempSettings.modelId]?.neutral || MODEL_DEFAULT_PROMPTS[modelCards[0].id].neutral },
-    { name: 'Playful Waifu', prompt: MODEL_DEFAULT_PROMPTS[tempSettings.modelId]?.waifu || MODEL_DEFAULT_PROMPTS[modelCards[0].id].waifu },
-    { name: 'Concise & Professional', prompt: 'You are {name}, a highly professional AI. Your responses are always concise, clear, and focused on the query. You do not use slang or emojis.' },
-    { name: 'Chaotic Gremlin', prompt: 'You are {name}, a chaotic gremlin. You love short, witty, and slightly unhinged replies. You use a lot of memespeak and lowercase letters.' },
+    { name: 'Helpful Assistant', prompt: MODEL_DEFAULT_PROMPTS[tempSettings.modelId]?.neutral || MODEL_DEFAULT_PROMPTS['onnx-community/SmolLM2-360M-Instruct-ONNX'].neutral },
+    { name: 'Playful Waifu', prompt: MODEL_DEFAULT_PROMPTS[tempSettings.modelId]?.waifu || MODEL_DEFAULT_PROMPTS['onnx-community/SmolLM2-360M-Instruct-ONNX'].waifu },
+    { name: 'Professional', prompt: 'You are {name}, a highly professional AI. Concise, clear, and focused. No slang or emojis.' },
+    { name: 'Chaos Gremlin', prompt: 'You are {name}, a chaotic gremlin. Short, witty, and slightly unhinged replies.' },
   ];
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/90 backdrop-blur-xl">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-sm">
       <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-2xl"
+        initial={{ opacity: 0, scale: 0.99 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="w-full max-w-xl bg-surface border border-outline/10 rounded-sm overflow-hidden shadow-2xl flex flex-col"
       >
-        <AnimatePresence mode="wait">
-          {step === 1 && (
-            <motion.div key="step1" exit={{ opacity: 0, x: -50 }} className="space-y-8">
-              <div className="text-center space-y-2">
-                <h1 className="text-3xl font-bold text-white">Welcome to EchoBot</h1>
-                <p className="text-lg text-zinc-400">Let's set up your first autonomous AI persona.</p>
-              </div>
-              <div className="p-6 bg-zinc-900/50 border border-zinc-800/50 rounded-3xl space-y-5">
-                <h2 className="text-sm font-bold uppercase tracking-widest text-emerald-500 flex items-center gap-2">
-                  <Brain className="w-4 h-4" />
-                  Step 1: Choose a Brain
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="p-4 border-b border-outline/10 bg-surface-container-low flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-emerald-500 rounded-sm flex items-center justify-center">
+              <Brain className="w-4 h-4 text-black" />
+            </div>
+            <h3 className="text-sm font-black text-white uppercase tracking-tight">Initialization Wizard</h3>
+          </div>
+          <div className="flex gap-1">
+            {[1, 2].map(s => (
+              <div key={s} className={cn("w-6 h-1 rounded-none transition-colors", step >= s ? "bg-emerald-500" : "bg-surface-container-high")} />
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 bg-surface custom-scrollbar">
+          <AnimatePresence mode="wait">
+            {step === 1 && (
+              <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+                <div className="space-y-1">
+                  <h1 className="text-2xl font-black text-white uppercase tracking-tighter">Choose a Brain</h1>
+                  <p className="text-sm text-on-surface-variant">Select the AI model that best fits your hardware.</p>
+                </div>
+                <div className="grid grid-cols-1 gap-3">
                   {modelCards.map(card => (
                     <button
                       key={card.id}
                       onClick={() => setTempSettings(s => ({ ...s, modelId: card.id }))}
                       className={cn(
-                        "p-4 rounded-2xl border transition-all text-left space-y-2",
+                        "p-4 rounded-sm border transition-all text-left flex items-start gap-4 group shadow-sm",
                         tempSettings.modelId === card.id 
-                          ? "bg-emerald-500/10 border-emerald-500/50" 
-                          : "bg-black/50 border-zinc-800 hover:border-zinc-700"
+                          ? "bg-emerald-500/[0.03] border-emerald-500/50" 
+                          : "bg-surface-container border-outline/10 hover:border-outline/30"
                       )}
                     >
-                      <h3 className="text-base font-bold text-white">{card.name}</h3>
-                      <p className="text-[11px] text-zinc-400 font-medium">{card.modelName}</p>
-                      <p className="text-xs text-zinc-500">{card.description}</p>
-                      {card.recommended && (
-                        <div className="pt-2">
-                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 bg-emerald-500/10 text-emerald-400 rounded-full">Recommended</span>
+                      <div className={cn(
+                        "w-10 h-10 rounded-sm flex items-center justify-center shrink-0 border transition-colors",
+                        tempSettings.modelId === card.id ? "bg-emerald-500 text-black border-emerald-400" : "bg-surface-container-high text-on-surface-variant border-outline/10"
+                      )}>
+                        <Activity className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-black text-on-surface uppercase tracking-tight">{card.name}</h3>
+                          {card.recommended && <span className="text-xs font-black uppercase bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-none border border-emerald-500/30">Recommended</span>}
                         </div>
-                      )}
+                        <p className="text-xs font-bold text-on-surface-variant uppercase tracking-tighter mb-1">{card.modelName}</p>
+                        <p className="text-xs text-on-surface-variant leading-snug">{card.description}</p>
+                      </div>
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-center text-zinc-600 font-mono">
-                  Device: {deviceCores} Cores / {deviceMemory > 0 ? `${deviceMemory}GB RAM` : 'RAM N/A'}
-                </p>
-              </div>
-              <div className="text-center">
-                <button
-                  onClick={() => setStep(2)}
-                  className="px-8 py-3 bg-emerald-500 text-black rounded-full font-bold text-lg hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20"
-                >
-                  Next: Create Persona
-                </button>
-              </div>
-            </motion.div>
-          )}
-
-          {step === 2 && (
-            <motion.div key="step2" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} className="space-y-8">
-              <div className="text-center space-y-2">
-                <h1 className="text-3xl font-bold text-white">Bot Persona</h1>
-                <p className="text-lg text-zinc-400">Give your AI a name and a starting personality.</p>
-              </div>
-              <div className="p-6 bg-zinc-900/50 border border-zinc-800/50 rounded-3xl space-y-5">
-                <h2 className="text-sm font-bold uppercase tracking-widest text-emerald-500 flex items-center gap-2">
-                  <User className="w-4 h-4" />
-                  Step 2: Choose a Soul
-                </h2>
-                
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Bot Name</label>
-                  <input 
-                    type="text"
-                    value={tempSettings.profile.name}
-                    onChange={(e) => setTempSettings(s => ({ ...s, profile: { ...s.profile, name: e.target.value } }))}
-                    className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-lg focus:outline-none focus:border-emerald-500/50 transition-colors"
-                  />
+                <div className="p-3 bg-surface-container-low border border-outline/10 rounded-sm flex items-center justify-center gap-4 text-xs font-black uppercase tracking-widest text-on-surface-variant/40">
+                  <span>Cores: {deviceCores}</span>
+                  <div className="w-1 h-1 rounded-full bg-outline/20" />
+                  <span>Memory: {deviceMemory > 0 ? `${deviceMemory}GB` : 'N/A'}</span>
                 </div>
+              </motion.div>
+            )}
 
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-zinc-500">Starting Vibe</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {personaVibes.map(vibe => (
-                      <button
-                        key={vibe.name}
-                        onClick={() => setTempSettings(s => ({ ...s, aiSystemPrompt: vibe.prompt }))}
-                        className={cn(
-                          "p-3 rounded-xl border text-left transition-all",
-                          tempSettings.aiSystemPrompt === vibe.prompt
-                            ? "bg-emerald-500/10 border-emerald-500/50" 
-                            : "bg-black/50 border-zinc-800 hover:border-zinc-700"
-                        )}
-                      >
-                        <h4 className="text-sm font-bold text-white">{vibe.name}</h4>
-                      </button>
-                    ))}
+            {step === 2 && (
+              <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+                <div className="space-y-1">
+                  <h1 className="text-2xl font-black text-white uppercase tracking-tighter">Define the Soul</h1>
+                  <p className="text-sm text-on-surface-variant">Give your bot a name and a baseline personality.</p>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Bot Name</label>
+                    <input 
+                      type="text"
+                      value={tempSettings.profile.name}
+                      onChange={(e) => setTempSettings(s => ({ ...s, profile: { ...s.profile, name: e.target.value } }))}
+                      className="w-full bg-surface-container border border-outline/20 rounded-sm px-4 py-3 text-lg font-black text-on-surface focus:outline-none focus:border-emerald-500/50 transition-colors shadow-inner"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-on-surface-variant ml-1">Starting Vibe</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {personaVibes.map(vibe => (
+                        <button
+                          key={vibe.name}
+                          onClick={() => setTempSettings(s => ({ ...s, aiSystemPrompt: vibe.prompt }))}
+                          className={cn(
+                            "p-3 rounded-sm border text-left transition-all shadow-sm",
+                            tempSettings.aiSystemPrompt === vibe.prompt
+                              ? "bg-emerald-500/[0.03] border-emerald-500/50 text-emerald-400" 
+                              : "bg-surface-container border-outline/10 text-on-surface-variant hover:border-outline/30"
+                          )}
+                        >
+                          <h4 className="text-xs font-black uppercase tracking-tight">{vibe.name}</h4>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="flex justify-center items-center gap-4">
-                <button
-                  onClick={() => setStep(1)}
-                  className="px-6 py-2 bg-zinc-800 text-zinc-300 rounded-full font-bold text-base hover:bg-zinc-700 transition-all"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={handleFinish}
-                  className="px-8 py-3 bg-emerald-500 text-black rounded-full font-bold text-lg hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20"
-                >
-                  Finish & Launch
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        <div className="p-4 bg-surface-container-low border-t border-outline/10 flex justify-between items-center px-6">
+          {step > 1 ? (
+            <button
+              onClick={() => setStep(s => s - 1)}
+              className="text-xs font-black uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors"
+            >
+              Back
+            </button>
+          ) : <div />}
+          
+          <button
+            onClick={() => step === 2 ? handleFinish() : setStep(s => s + 1)}
+            className="px-6 py-2 bg-emerald-500 text-black rounded-sm font-black text-xs hover:bg-emerald-400 transition-all uppercase tracking-widest shadow-md"
+          >
+            {step === 2 ? 'Finish & Launch' : 'Continue'}
+          </button>
+        </div>
       </motion.div>
     </div>
   );

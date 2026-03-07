@@ -13,6 +13,9 @@ export interface LogEntry {
   type: 'info' | 'success' | 'warning' | 'error';
   message: string;
   pubkey?: string;
+  botName?: string;
+  eventId?: string;
+  relays?: string[];
 }
 
 export interface ProfileInfo {
