@@ -85,6 +85,15 @@ import { BotCard } from './components/BotCard';
 
 // --- Helpers ---
 
+function shuffleArray<T>(array: T[]): T[] {
+  const newArray = [...array];
+  for (let i = newArray.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+  }
+  return newArray;
+}
+
 function generateWaifuProfile(): ProfileInfo {
   const name = WAIFU_NAMES[Math.floor(Math.random() * WAIFU_NAMES.length)];
   const picture = WAIFU_AVATARS[Math.floor(Math.random() * WAIFU_AVATARS.length)];
@@ -175,6 +184,7 @@ export default function App() {
 
   const [targetFollows, setTargetFollows] = useState<string[]>([]);
   const [queueCounts, setQueueCounts] = useState<Record<string, number>>({});
+  const [plannedCounts, setPlannedCounts] = useState<Record<string, number>>({});
 
   // AI Brain State
   const [aiStatus, setAiStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -1810,192 +1820,158 @@ export default function App() {
           }    }
 
     // 2. Helper functions for processing events
-    const scheduleReply = (event: any, relays: string[]) => {
-      addTaskToQueue({
-        id: `reply-${event.id}-${Math.random()}`,
-        botId: identity.id,
-        description: `[${identity.name}] Reply to ${event.id.substring(0, 8)}`,
-        execute: async () => {
-          if (!poolRef.current) return;
+    const getReplyTask = (event: any, relays: string[]): BotTask => ({
+      id: `reply-${event.id}-${Math.random()}`,
+      botId: identity.id,
+      description: `[${identity.name}] Reply to ${event.id.substring(0, 8)}`,
+      execute: async () => {
+        if (!poolRef.current) return;
 
-          // --- Fetch thread context ---
-          const eTags = event.tags.filter((t: any) => t[0] === 'e');
-          const contextEvents: { pubkey: string; content: string; created_at: number }[] = [];
+        // --- Fetch thread context ---
+        const eTags = event.tags.filter((t: any) => t[0] === 'e');
+        const contextEvents: { pubkey: string; content: string; created_at: number }[] = [];
 
-          if (eTags.length > 0) {
-            const parentIds = eTags.map((t: any) => t[1]);
-            try {
-              const fetchedContext = await poolRef.current.querySync([...new Set([...relays, ...SEARCH_RELAYS])], {
-                ids: parentIds,
-                kinds: [1]
-              });
-              contextEvents.push(...fetchedContext.map(ev => ({
-                pubkey: ev.pubkey,
-                content: ev.content,
-                created_at: ev.created_at
-              })).sort((a, b) => a.created_at - b.created_at));
-            } catch (e) {}
-          }
-
-          const message = await generateBotMessage(identity.settings, identity.id, identity.settings.targetNpub, event.content, contextEvents);
-          if (!message) return;
-
-          // Improved NIP-10 tagging
-          const rootTag = eTags.find((t: any) => t[3] === 'root') || eTags[0];
-
-          const tags: string[][] = [];
-          if (rootTag && rootTag[1] !== event.id) {
-            // Replying to a reply
-            tags.push(['e', rootTag[1], '', 'root']);
-            tags.push(['e', event.id, '', 'reply']);
-          } else {
-            // Replying to a root note
-            tags.push(['e', event.id, '', 'root']);
-          }
-          tags.push(['p', event.pubkey]);
-
-          const replyEvent = finalizeEvent({
-            kind: 1,
-            created_at: Math.floor(Date.now() / 1000),
-            tags,
-            content: message,
-          }, sk as any);
-
+        if (eTags.length > 0) {
+          const parentIds = eTags.map((t: any) => t[1]);
           try {
-            const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
-            const pubs = poolRef.current.publish(allRelays, replyEvent);
-            const results = await Promise.allSettled(pubs);
-            const successCount = results.filter(r => r.status === 'fulfilled').length;
-
-            if (successCount > 0) {
-              addLog(`[${identity.name}] Replied: "${message}"`, 'success', undefined, identity.name, replyEvent.id, allRelays, event.content, event.pubkey, identity.id, event.id);
-              addStatToBatch(identity.id, { repliesSent: 1 });
-            }
-          } catch (e) {
-            addLog(`[${identity.name}] Failed to broadcast reply.`, 'error', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id, event.id);
-          }
+            const fetchedContext = await poolRef.current.querySync([...new Set([...relays, ...SEARCH_RELAYS])], {
+              ids: parentIds,
+              kinds: [1]
+            });
+            contextEvents.push(...fetchedContext.map(ev => ({
+              pubkey: ev.pubkey,
+              content: ev.content,
+              created_at: ev.created_at
+            })).sort((a, b) => a.created_at - b.created_at));
+          } catch (e) {}
         }
-      });
-    };
 
-    const scheduleReactions = (event: any, relays: string[]) => {
-      if (!identity.settings.reactToNotes) return;
+        const message = await generateBotMessage(identity.settings, identity.id, identity.settings.targetNpub, event.content, contextEvents);
+        if (!message) return;
 
-      const allEmojis: string[] = [];
-      if (identity.settings.reactionEmojis) {
-        const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-        const customEmojis = [...segmenter.segment(identity.settings.reactionEmojis.trim())]
-          .map(s => s.segment)
-          .filter(c => c.trim() !== '');
-        allEmojis.push(...customEmojis);
+        // Improved NIP-10 tagging
+        const rootTag = eTags.find((t: any) => t[3] === 'root') || eTags[0];
+
+        const tags: string[][] = [];
+        if (rootTag && rootTag[1] !== event.id) {
+          // Replying to a reply
+          tags.push(['e', rootTag[1], '', 'root']);
+          tags.push(['e', event.id, '', 'reply']);
+        } else {
+          // Replying to a root note
+          tags.push(['e', event.id, '', 'root']);
+        }
+        tags.push(['p', event.pubkey]);
+
+        const replyEvent = finalizeEvent({
+          kind: 1,
+          created_at: Math.floor(Date.now() / 1000),
+          tags,
+          content: message,
+        }, sk as any);
+
+        try {
+          const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
+          const pubs = poolRef.current.publish(allRelays, replyEvent);
+          const results = await Promise.allSettled(pubs);
+          const successCount = results.filter(r => r.status === 'fulfilled').length;
+
+          if (successCount > 0) {
+            addLog(`[${identity.name}] Replied: "${message}"`, 'success', undefined, identity.name, replyEvent.id, allRelays, event.content, event.pubkey, identity.id, event.id);
+            addStatToBatch(identity.id, { repliesSent: 1 });
+          }
+        } catch (e) {
+          addLog(`[${identity.name}] Failed to broadcast reply.`, 'error', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id, event.id);
+        }
       }
+    });
 
-      if (allEmojis.length === 0) return;
-      const emoji = allEmojis[Math.floor(Math.random() * allEmojis.length)];
+    const getReactionTask = (event: any, relays: string[], emoji: string): BotTask => ({
+      id: `reaction-${event.id}-${emoji}-${Math.random()}`,
+      botId: identity.id,
+      description: `[${identity.name}] Reaction "${emoji}" to ${event.id.substring(0, 8)}`,
+      execute: async () => {
+        if (!poolRef.current) return;
+        const reactEvent = finalizeEvent({
+          kind: 7,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [
+            ['e', event.id],
+            ['p', event.pubkey]
+          ],
+          content: emoji,
+        }, sk as any);
 
-      addTaskToQueue({
-        id: `reaction-${event.id}-${emoji}-${Math.random()}`,
-        botId: identity.id,
-        description: `[${identity.name}] Reaction "${emoji}" to ${event.id.substring(0, 8)}`,
-        execute: async () => {
-          if (!poolRef.current) return;
-          const reactEvent = finalizeEvent({
-            kind: 7,
-            created_at: Math.floor(Date.now() / 1000),
-            tags: [
-              ['e', event.id],
-              ['p', event.pubkey]
-            ],
-            content: emoji,
-          }, sk as any);
+        try {
+          const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
+          const pubs = poolRef.current.publish(allRelays, reactEvent);
+          const results = await Promise.allSettled(pubs);
+          if (results.some(r => r.status === 'fulfilled')) {
+            addLog(`[${identity.name}] Reacted with ${emoji}`, 'success', undefined, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
+            addStatToBatch(identity.id, { reactionsSent: 1 });
+          }
+        } catch (e) {}
+      }
+    });
 
-          try {
-            const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
-            const pubs = poolRef.current.publish(allRelays, reactEvent);
-            const results = await Promise.allSettled(pubs);
-            if (results.some(r => r.status === 'fulfilled')) {
-              addLog(`[${identity.name}] Reacted with ${emoji}`, 'success', undefined, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
-              addStatToBatch(identity.id, { reactionsSent: 1 });
-            }
-          } catch (e) {}
-        }
-      });
-    };
+    const getRepostTask = (event: any, relays: string[]): BotTask => ({
+      id: `repost-${event.id}-${Math.random()}`,
+      botId: identity.id,
+      description: `[${identity.name}] Repost ${event.id.substring(0, 8)}`,
+      execute: async () => {
+        if (!poolRef.current) return;
+        const repostEvent = finalizeEvent({
+          kind: 6,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [
+            ['e', event.id, '', 'mention'],
+            ['p', event.pubkey]
+          ],
+          content: '',
+        }, sk as any);
 
-    const scheduleRepost = (event: any, relays: string[]) => {
-      if (!identity.settings.repostNotes) return;
+        try {
+          const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
+          const pubs = poolRef.current.publish(allRelays, repostEvent);
+          const results = await Promise.allSettled(pubs);
+          if (results.some(r => r.status === 'fulfilled')) {
+            addLog(`[${identity.name}] Reposted note.`, 'success', undefined, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
+            addStatToBatch(identity.id, { repostsSent: 1 });
+          }
+        } catch (e) {}
+      }
+    });
 
-      // 1. Only repost top-level notes (no 'e' tags)
-      const hasETags = event.tags?.some((t: string[]) => t[0] === 'e');
-      if (hasETags) return;
+    const getFollowTask = (pubkey: string, relays: string[]): BotTask => ({
+      id: `follow-${pubkey}-${Math.random()}`,
+      botId: identity.id,
+      description: `[${identity.name}] Follow ${pubkey.substring(0, 8)}`,
+      execute: async () => {
+        if (!poolRef.current) return;
+        const followEvent = await poolRef.current.get(SEARCH_RELAYS, {
+          kinds: [3],
+          authors: [pk]
+        });
 
-      // 2. Chance check
-      const chance = identity.settings.repostChance ?? 0.25;
-      if (Math.random() > chance) return;
+        const tags = followEvent ? followEvent.tags : [];
+        if (tags.some((t: string[]) => t[0] === 'p' && t[1] === pubkey)) return;
 
-      addTaskToQueue({
-        id: `repost-${event.id}-${Math.random()}`,
-        botId: identity.id,
-        description: `[${identity.name}] Repost ${event.id.substring(0, 8)}`,
-        execute: async () => {
-          if (!poolRef.current) return;
-          const repostEvent = finalizeEvent({
-            kind: 6,
-            created_at: Math.floor(Date.now() / 1000),
-            tags: [
-              ['e', event.id, '', 'mention'],
-              ['p', event.pubkey]
-            ],
-            content: '',
-          }, sk as any);
+        const newTags = [...tags, ['p', pubkey]];
+        const event = finalizeEvent({
+          kind: 3,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: newTags,
+          content: '',
+        }, sk as any);
 
-          try {
-            const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
-            const pubs = poolRef.current.publish(allRelays, repostEvent);
-            const results = await Promise.allSettled(pubs);
-            if (results.some(r => r.status === 'fulfilled')) {
-              addLog(`[${identity.name}] Reposted note.`, 'success', undefined, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
-              addStatToBatch(identity.id, { repostsSent: 1 });
-            }
-          } catch (e) {}
-        }
-      });
-    };
-
-    const scheduleFollow = (pubkey: string, relays: string[]) => {
-      if (!identity.settings.autoFollowBack) return;
-
-      addTaskToQueue({
-        id: `follow-${pubkey}-${Math.random()}`,
-        botId: identity.id,
-        description: `[${identity.name}] Follow ${pubkey.substring(0, 8)}`,
-        execute: async () => {
-          if (!poolRef.current) return;
-          const followEvent = await poolRef.current.get(SEARCH_RELAYS, {
-            kinds: [3],
-            authors: [pk]
-          });
-
-          const tags = followEvent ? followEvent.tags : [];
-          if (tags.some((t: string[]) => t[0] === 'p' && t[1] === pubkey)) return;
-
-          const newTags = [...tags, ['p', pubkey]];
-          const event = finalizeEvent({
-            kind: 3,
-            created_at: Math.floor(Date.now() / 1000),
-            tags: newTags,
-            content: '',
-          }, sk as any);
-
-          try {
-            const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
-            const pubs = poolRef.current.publish(allRelays, event);
-            await Promise.allSettled(pubs);
-            addLog(`[${identity.name}] Followed back user.`, 'success', undefined, identity.name);
-          } catch (e) {}
-        }
-      });
-    };
+        try {
+          const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
+          const pubs = poolRef.current.publish(allRelays, event);
+          await Promise.allSettled(pubs);
+          addLog(`[${identity.name}] Followed back user.`, 'success', undefined, identity.name);
+        } catch (e) {}
+      }
+    });
 
     // 3. Initial profile publish
     await publishProfile(sk as any, identity.settings.profile, targetRelays);
@@ -2014,16 +1990,34 @@ export default function App() {
         if (event.kind === 1) {
           addLog(`[${identity.name}] New mention from ${nip19.npubEncode(event.pubkey)}`, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
           addStatToBatch(identity.id, { repliesReceived: 1 });
-          if (identity.settings.autoFollowBack) scheduleFollow(event.pubkey, targetRelays);
+          if (identity.settings.autoFollowBack) {
+            setPlannedCounts(prev => ({ ...prev, [identity.id]: (prev[identity.id] || 0) + 1 }));
+            const delay = 60 + Math.random() * 840; // 1-15 minutes
+            const timeout = setTimeout(() => {
+              setPlannedCounts(prev => ({ ...prev, [identity.id]: Math.max(0, (prev[identity.id] || 0) - 1) }));
+              addTaskToQueue(getFollowTask(event.pubkey, targetRelays));
+            }, delay * 1000);
+            timeoutRefs.current.push(timeout);
+          }
         }
         if (event.kind === 7) {
           addLog(`[${identity.name}] New reaction from ${nip19.npubEncode(event.pubkey)}`, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
           addStatToBatch(identity.id, { reactionsReceived: 1 });
-          if (identity.settings.autoFollowBack) scheduleFollow(event.pubkey, targetRelays);
+          if (identity.settings.autoFollowBack) {
+            setPlannedCounts(prev => ({ ...prev, [identity.id]: (prev[identity.id] || 0) + 1 }));
+            const delay = 60 + Math.random() * 840; // 1-15 minutes
+            const timeout = setTimeout(() => {
+              setPlannedCounts(prev => ({ ...prev, [identity.id]: Math.max(0, (prev[identity.id] || 0) - 1) }));
+              addTaskToQueue(getFollowTask(event.pubkey, targetRelays));
+            }, delay * 1000);
+            timeoutRefs.current.push(timeout);
+          }
         }
       }
 
       if (event.kind === 7) return;
+
+      const interactionTasks: BotTask[] = [];
 
       if (mentionsSelf && event.pubkey !== targetHex) {
         // Only reply to mentions if enabled
@@ -2040,16 +2034,64 @@ export default function App() {
           // Probability check
           const prob = identity.settings.proactive?.replyProbability ?? 0.5;
           if (Math.random() < prob) {
-            scheduleReply(event, targetRelays);
-            scheduleReactions(event, targetRelays);
+            interactionTasks.push(getReplyTask(event, targetRelays));
+            
+            if (identity.settings.reactToNotes) {
+              const allEmojis: string[] = [];
+              if (identity.settings.reactionEmojis) {
+                const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+                const customEmojis = [...segmenter.segment(identity.settings.reactionEmojis.trim())].map(s => s.segment).filter(c => c.trim() !== '');
+                allEmojis.push(...customEmojis);
+              }
+              if (allEmojis.length > 0) {
+                const emoji = allEmojis[Math.floor(Math.random() * allEmojis.length)];
+                interactionTasks.push(getReactionTask(event, targetRelays, emoji));
+              }
+            }
           }
         }
       } else if (event.pubkey === targetHex) {
         const targetNpub = nip19.npubEncode(event.pubkey);
         addLog(`[${identity.name}] New note from ${targetNpub}`, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
-        scheduleReply(event, targetRelays);
-        scheduleReactions(event, targetRelays);
-        if (identity.settings.repostNotes) scheduleRepost(event, targetRelays);
+        
+        interactionTasks.push(getReplyTask(event, targetRelays));
+
+        if (identity.settings.reactToNotes) {
+          const allEmojis: string[] = [];
+          if (identity.settings.reactionEmojis) {
+            const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+            const customEmojis = [...segmenter.segment(identity.settings.reactionEmojis.trim())].map(s => s.segment).filter(c => c.trim() !== '');
+            allEmojis.push(...customEmojis);
+          }
+          if (allEmojis.length > 0) {
+            const emoji = allEmojis[Math.floor(Math.random() * allEmojis.length)];
+            interactionTasks.push(getReactionTask(event, targetRelays, emoji));
+          }
+        }
+
+        if (identity.settings.repostNotes) {
+          // 1. Only repost top-level notes (no 'e' tags)
+          const hasETags = event.tags?.some((t: string[]) => t[0] === 'e');
+          if (!hasETags) {
+            const chance = identity.settings.repostChance ?? 0.25;
+            if (Math.random() < chance) {
+              interactionTasks.push(getRepostTask(event, targetRelays));
+            }
+          }
+        }
+      }
+
+      if (interactionTasks.length > 0) {
+        setPlannedCounts(prev => ({ ...prev, [identity.id]: (prev[identity.id] || 0) + interactionTasks.length }));
+        // Human-like delay block: wait 1-15 minutes before even planning the tasks
+        const blockDelay = 60 + Math.random() * 840; 
+        const timeout = setTimeout(() => {
+          setPlannedCounts(prev => ({ ...prev, [identity.id]: Math.max(0, (prev[identity.id] || 0) - interactionTasks.length) }));
+          // Shuffle the order within the block
+          const shuffled = shuffleArray(interactionTasks);
+          shuffled.forEach(task => addTaskToQueue(task));
+        }, blockDelay * 1000);
+        timeoutRefs.current.push(timeout);
       }
     };
 
@@ -2331,10 +2373,10 @@ export default function App() {
                         {isRunning(identity.id) && (
                           <div className={cn(
                             "absolute -top-1.5 -right-1.5 rounded-full border border-surface shadow-sm flex items-center justify-center min-w-[14px] h-[14px] px-0.5 z-10",
-                            (queueCounts[identity.id] || 0) > 0 ? "bg-emerald-500 animate-none" : "bg-emerald-500 animate-pulse"
+                            ((queueCounts[identity.id] || 0) + (plannedCounts[identity.id] || 0)) > 0 ? "bg-emerald-500 animate-none" : "bg-emerald-500 animate-pulse"
                           )}>
-                            {(queueCounts[identity.id] || 0) > 0 ? (
-                              <span className="text-[9px] font-black text-black leading-none">{queueCounts[identity.id]}</span>
+                            {((queueCounts[identity.id] || 0) + (plannedCounts[identity.id] || 0)) > 0 ? (
+                              <span className="text-[9px] font-black text-black leading-none">{(queueCounts[identity.id] || 0) + (plannedCounts[identity.id] || 0)}</span>
                             ) : null}
                           </div>
                         )}
