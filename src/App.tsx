@@ -2129,7 +2129,7 @@ export default function App() {
   // --- Render Helpers ---
 
   return (
-    <div className="h-screen flex flex-col bg-surface text-on-surface font-sans selection:bg-emerald-500/30 selection:text-white overflow-hidden">
+    <div className="min-h-screen lg:h-screen flex flex-col bg-surface text-on-surface font-sans selection:bg-emerald-500/30 selection:text-white lg:overflow-hidden">
       {/* Header */}
       <header className="shrink-0 border-b border-outline/10 bg-surface-container-low z-10 shadow-sm">
         <div className="max-w-[1800px] mx-auto px-4 h-12 flex items-center justify-between">
@@ -2140,7 +2140,7 @@ export default function App() {
             <h1 className="text-lg font-black tracking-tight text-white uppercase">EchoBot</h1>
           </div>
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             {userPubkey && curatorProfile ? (
               <button 
                 onClick={handleLogout}
@@ -2154,7 +2154,7 @@ export default function App() {
                   referrerPolicy="no-referrer"
                   crossOrigin="anonymous"
                 />
-                <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant group-hover:text-red-400">{curatorProfile.name}</span>
+                <span className="hidden md:inline text-xs font-bold uppercase tracking-wider text-on-surface-variant group-hover:text-red-400">{curatorProfile.name}</span>
               </button>
             ) : (
               <button 
@@ -2163,7 +2163,7 @@ export default function App() {
                 title="Login with Nostr Extension"
               >
                 <User className="w-3 h-3" />
-                Sign In
+                <span className="hidden md:inline">Sign In</span>
               </button>
             )}
 
@@ -2178,7 +2178,7 @@ export default function App() {
               title="View Dashboard"
             >
               <Layout className="w-3.5 h-3.5" />
-              Dashboard
+              <span className="hidden md:inline">Dashboard</span>
             </button>
 
             <button 
@@ -2192,7 +2192,7 @@ export default function App() {
               title="Manage Identities"
             >
               <Users className="w-3.5 h-3.5" />
-              Manage Bots
+              <span className="hidden md:inline">Manage Bots</span>
             </button>
 
             <button 
@@ -2206,7 +2206,7 @@ export default function App() {
               title="Application Settings"
             >
               <SettingsIcon className="w-3.5 h-3.5" />
-              Settings
+              <span className="hidden md:inline">Settings</span>
             </button>
             </div>
             </div>
@@ -2215,8 +2215,8 @@ export default function App() {
         {currentView === 'dashboard' && (
           <>
         {/* Left Column: Controls */}
-        <div className="lg:col-span-3 flex flex-col min-h-0 space-y-2 overflow-hidden">
-          <div className="shrink-0 overflow-y-auto custom-scrollbar space-y-2">
+        <div className="lg:col-span-3 flex flex-col min-h-[300px] space-y-2 overflow-hidden">
+          <div className="shrink-0 lg:overflow-y-auto custom-scrollbar space-y-2">
             {/* Identity Info */}
           <section className="bg-surface-container border border-outline/10 rounded-sm p-3 space-y-3 relative overflow-hidden group/card shadow-sm">
             <div className="flex items-center justify-between">
@@ -2497,8 +2497,8 @@ export default function App() {
         </div>
 
         {/* Middle Column: Content Tabs */}
-        <div className="lg:col-span-6 min-h-0">
-          <section className="bg-surface-container border border-outline/10 rounded-sm h-full flex flex-col overflow-hidden shadow-sm">
+        <div className="lg:col-span-6 min-h-[400px] flex flex-col">
+          <section className="bg-surface-container border border-outline/10 rounded-sm flex-1 flex flex-col overflow-hidden shadow-sm">
             <div className="flex border-b border-outline/10 bg-surface-container-low">
               <button
                 onClick={() => setRightTab('timeline')}
@@ -3043,7 +3043,7 @@ export default function App() {
         </div>
 
         {/* Right Column: Identity Swarm */}
-        <div className="lg:col-span-3 h-full flex flex-col min-h-0 space-y-2">
+        <div className="lg:col-span-3 lg:min-h-[300px] flex flex-col space-y-2">
           <section className="bg-surface-container border border-outline/10 rounded-sm flex-1 flex flex-col overflow-hidden shadow-sm">
             <div className="px-3 py-2 bg-surface-container-low border-b border-outline/10 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -3228,8 +3228,8 @@ export default function App() {
         {currentView === 'manager' && (
           <>
             {/* Left Nav for Manager */}
-            <div className="lg:col-span-3 flex flex-col min-h-0 space-y-2 overflow-hidden">
-              <section className="bg-surface-container border border-outline/10 rounded-sm p-4 flex flex-col gap-2">
+            <div className="lg:col-span-3 lg:flex flex-col lg:min-h-[200px] w-full overflow-hidden">
+              <section className="bg-surface-container border border-outline/10 rounded-sm p-3 flex flex-col gap-2">
                 <h3 className="text-xs font-black uppercase tracking-[0.2em] text-on-surface-variant mb-2">Bot Management</h3>
                 <button 
                   onClick={() => setManagerTab('local')}
@@ -3260,7 +3260,7 @@ export default function App() {
                 </button>
               </section>
               
-              <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-container/30 border border-dashed border-outline/10 rounded-sm opacity-30 text-center space-y-2">
+              <div className="hidden lg:flex flex-1 flex flex-col items-center justify-center p-8 bg-surface-container/30 border border-dashed border-outline/10 rounded-sm opacity-30 text-center space-y-2">
                 <Brain className="w-12 h-12" />
                 <p className="text-[10px] font-bold uppercase tracking-widest max-w-[150px]">
                   Build your swarm, dominate the feed.
@@ -3269,7 +3269,7 @@ export default function App() {
             </div>
 
             {/* Right Content for Manager */}
-            <div className="lg:col-span-9 flex flex-col min-h-0">
+            <div className="lg:col-span-9 flex flex-col lg:min-h-[400px]">
               <section className="bg-surface-container border border-outline/10 rounded-sm flex-1 flex flex-col overflow-hidden shadow-sm">
                 <div className="px-4 py-3 bg-surface-container-low border-b border-outline/10 flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -3290,7 +3290,7 @@ export default function App() {
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-3 custom-scrollbar bg-surface">
-                  {managerTab === 'local' ? (
+                  {managerTab === 'local' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
                       {savedIdentities.filter(i => !i.deleted).length === 0 ? (
                         <div className="h-full py-20 flex flex-col items-center justify-center opacity-20">
@@ -3467,8 +3467,10 @@ export default function App() {
                         ))
                       )}
                     </div>
-                  ) : (
-                    <div className="flex-1 flex flex-col min-w-0">
+                  )}
+
+                  {managerTab === 'community' && (
+                    <div className="flex-1 flex flex-col min-h-0">
                       {isDiscovering && communityPersonas.length === 0 ? (
                         <div className="h-full py-20 flex flex-col items-center justify-center space-y-4 opacity-30 text-on-surface">
                           <RefreshCw className="w-12 h-12 animate-spin text-emerald-500" />
@@ -3607,10 +3609,10 @@ export default function App() {
         )}
 
         {currentView === 'settings' && (
-          <>
+          <div className="lg:contents flex flex-col gap-2">
             {/* Left Nav for Settings */}
-            <div className="lg:col-span-3 flex flex-col min-h-0 space-y-2 overflow-hidden">
-              <section className="bg-surface-container border border-outline/10 rounded-sm p-4 flex flex-col gap-2">
+            <div className="lg:col-span-3 flex flex-col lg:min-h-[200px] overflow-hidden">
+              <section className="bg-surface-container border border-outline/10 rounded-sm p-3 flex flex-col gap-2">
                 <h3 className="text-xs font-black uppercase tracking-[0.2em] text-on-surface-variant mb-2">App Preferences</h3>
                 <button 
                   onClick={() => setSettingsTab('general')}
@@ -3649,7 +3651,7 @@ export default function App() {
                   Advanced
                 </button>
               </section>
-              <div className="bg-surface-container/20 border border-outline/5 rounded-sm p-4">
+              <div className="hidden lg:block bg-surface-container/20 border border-outline/5 rounded-sm p-4">
                 <div className="flex items-center gap-2 mb-2 text-on-surface-variant opacity-40">
                   <Info className="w-3.5 h-3.5" />
                   <span className="text-[10px] font-black uppercase tracking-widest">Version 0.2.0</span>
@@ -3661,19 +3663,19 @@ export default function App() {
             </div>
 
             {/* Right Content for Settings */}
-            <div className="lg:col-span-9 flex flex-col min-h-0">
+            <div className="lg:col-span-9 flex flex-col lg:min-h-[400px]">
               <section className="bg-surface-container border border-outline/10 rounded-sm flex-1 flex flex-col overflow-hidden shadow-sm">
                 <div className="px-4 py-3 bg-surface-container-low border-b border-outline/10">
                   <h2 className="text-sm font-black uppercase tracking-[0.15em] text-white">
-                    {settingsTab === 'general' ? 'General Settings' : 'AI Engine Configuration'}
+                    {settingsTab === 'general' ? 'General Settings' : settingsTab === 'ai' ? 'AI Engine Configuration' : 'Advanced Operations'}
                   </h2>
                 </div>
-                <div className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-surface space-y-6">
+                <div className="flex-1 overflow-y-auto p-3 custom-scrollbar bg-surface">
                   {settingsTab === 'general' && (
-                    <div className="max-w-2xl space-y-6">
-                      <div className="space-y-4">
+                    <div className="max-w-2xl flex flex-col gap-6">
+                      <div className="flex flex-col gap-4">
                         <div className="flex items-center justify-between p-4 bg-surface-container-high border border-outline/10 rounded-sm">
-                          <div className="space-y-1">
+                          <div className="flex flex-col gap-1">
                             <h4 className="text-xs font-bold uppercase tracking-widest text-white">Verbose Logging</h4>
                             <p className="text-[10px] text-on-surface-variant">Show all internal process logs in the timeline.</p>
                           </div>
@@ -3692,7 +3694,7 @@ export default function App() {
                         </div>
 
                         <div className="flex items-center justify-between p-4 bg-surface-container-high border border-outline/10 rounded-sm">
-                          <div className="space-y-1">
+                          <div className="flex flex-col gap-1">
                             <h4 className="text-xs font-bold uppercase tracking-widest text-white">Global Lightning Sync</h4>
                             <p className="text-[10px] text-on-surface-variant">Use your Curator lightning address for all managed bots.</p>
                           </div>
@@ -3714,10 +3716,10 @@ export default function App() {
                   )}
 
                   {settingsTab === 'ai' && (
-                    <div className="max-w-2xl space-y-8">
+                    <div className="max-w-2xl flex flex-col gap-6">
                        <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-sm flex gap-3">
                         <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
-                        <div className="space-y-1">
+                        <div className="flex flex-col gap-1">
                           <h4 className="text-xs font-bold text-amber-500 uppercase tracking-widest">AI Safety Notice</h4>
                           <p className="text-[10px] text-amber-500/80 leading-relaxed">
                             WebLLM models run locally in your browser cache. Initial download may exceed 2GB. 
@@ -3726,7 +3728,7 @@ export default function App() {
                         </div>
                       </div>
                       
-                      <div className="space-y-4">
+                      <div className="flex flex-col gap-4">
                         <h4 className="text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">Active AI Engine</h4>
                         <div className="grid grid-cols-1 gap-3">
                           {SUPPORTED_MODELS.map((model) => {
@@ -3784,7 +3786,7 @@ export default function App() {
                                 </div>
 
                                 {isLoading && (
-                                  <div className="space-y-1.5 mt-1">
+                                  <div className="flex flex-col gap-1.5 mt-1">
                                     <div className="flex justify-between text-[10px] uppercase font-black tracking-widest text-on-surface-variant opacity-40 px-0.5">
                                       <span className="truncate max-w-[200px]">{currentLoadingFile ? `Downloading ${currentLoadingFile}...` : 'Initializing WebLLM Engine...'}</span>
                                     </div>
@@ -3805,10 +3807,10 @@ export default function App() {
                   )}
 
                   {settingsTab === 'advanced' && (
-                    <div className="max-w-2xl space-y-8">
+                    <div className="max-w-2xl flex flex-col gap-6">
                       <div className="p-4 bg-red-500/5 border border-red-500/20 rounded-sm flex gap-4">
                         <ShieldAlert className="w-6 h-6 text-red-500 shrink-0" />
-                        <div className="space-y-1">
+                        <div className="flex flex-col gap-1">
                           <h4 className="text-xs font-bold text-red-500 uppercase tracking-widest">Danger Zone</h4>
                           <p className="text-[10px] text-red-400/80 leading-relaxed uppercase font-bold tracking-tight">
                             The following actions are destructive and cannot be undone. 
@@ -3817,9 +3819,9 @@ export default function App() {
                         </div>
                       </div>
 
-                      <section className="space-y-4">
+                      <section className="flex flex-col gap-4">
                         <div className="flex items-center justify-between p-4 bg-surface-container-high border border-outline/10 rounded-sm group hover:border-red-500/20 transition-colors">
-                          <div className="space-y-1">
+                          <div className="flex flex-col gap-1">
                             <h4 className="text-xs font-bold uppercase tracking-widest text-white">Application Reset</h4>
                             <p className="text-[10px] text-on-surface-variant">Clear all local storage, identities, and settings.</p>
                           </div>
@@ -3843,7 +3845,7 @@ export default function App() {
                 </div>
               </section>
             </div>
-          </>
+          </div>
         )}
       </main>
 
