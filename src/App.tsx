@@ -2523,8 +2523,8 @@ export default function App() {
               {rightTab === 'timeline' ? (
                 <LogTimeline 
                   logs={logs}
-                  isVerbose={isVerbose}
-                  setIsVerbose={setIsVerbose}
+                  isVerbose={false}
+                  setIsVerbose={() => {}}
                   onClear={clearLogs}
                   communityProfiles={communityProfiles}
                   hideVerboseToggle={true}
