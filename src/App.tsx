@@ -20,6 +20,7 @@ import {
   Clock, 
   RefreshCw,
   Search,
+  Check,
   Globe,
   Layout,
   AlertCircle,
@@ -164,7 +165,7 @@ export default function App() {
   const [currentIdentity, setCurrentIdentity] = useState<{ sk: Uint8Array; pk: string } | null>(null);
   const [activeRelays, setActiveRelays] = useState<string[]>([]);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
-  const [managerTab, setManagerTab] = useState<'local' | 'community'>('local');
+  const [managerTab, setManagerTab] = useState<'local' | 'community' | 'chat'>('local');
   const [settingsTab, setSettingsTab] = useState<'general' | 'ai' | 'advanced' | 'logs'>('general');
   const [globalUseCuratorLightning, setGlobalUseCuratorLightning] = useState(() => {
     return localStorage.getItem(STORAGE_KEY_GLOBAL_LIGHTNING_SYNC) === 'true';
@@ -187,6 +188,12 @@ export default function App() {
   const [queueCounts, setQueueCounts] = useState<Record<string, number>>({});
   const [plannedCounts, setPlannedCounts] = useState<Record<string, number>>({});
 
+  // Swarm Chat State
+  const [swarmChatMessages, setSwarmChatMessages] = useState<{ id: string; botId?: string; name: string; content: string; timestamp: number }[]>([]);
+  const [swarmChatParticipants, setSwarmChatParticipants] = useState<Set<string>>(new Set());
+  const [isSwarmChatThinking, setIsSwarmChatThinking] = useState<string | null>(null); // Bot ID currently thinking
+  const swarmChatAbortControllerRef = useRef<AbortController | null>(null);
+
   // AI Brain State
   const [aiStatus, setAiStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [aiProgress, setAiProgress] = useState(0);
@@ -205,6 +212,16 @@ export default function App() {
   const [playgroundInput, setPlaygroundInput] = useState('');
   const playgroundScrollRef = useRef<HTMLDivElement>(null);
   const playgroundInputRef = useRef<HTMLInputElement>(null);
+
+  // Autoscroll Swarm Chat
+  useEffect(() => {
+    if (managerTab === 'chat') {
+      const element = document.getElementById('swarm-chat-end');
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  }, [swarmChatMessages, isSwarmChatThinking, managerTab]);
 
   // Autoscroll Playground
   useEffect(() => {
@@ -476,8 +493,8 @@ export default function App() {
 
       // Format thread context for the AI (Limit to top 5 for memory safety)
       const threadContext = (context || []).slice(0, 5).map(msg => ({
-        role: 'user',
-        content: `[Context from ${msg.pubkey.substring(0, 8)}]: ${msg.content}`
+        role: 'user' as const,
+        content: msg.pubkey ? `[Context from ${msg.pubkey.substring(0, 8)}]: ${msg.content}` : msg.content
       }));
 
       const userMessage = isOriginalPost 
@@ -1224,6 +1241,88 @@ export default function App() {
     } else {
       addLog('Welcome to EchoBot! Create your first bot to get started.', 'success');
     }
+  };
+
+  const handleClearSwarmChat = () => {
+    if (swarmChatAbortControllerRef.current) {
+      swarmChatAbortControllerRef.current.abort();
+      swarmChatAbortControllerRef.current = null;
+    }
+    setSwarmChatMessages([]);
+    setIsSwarmChatThinking(null);
+  };
+
+  const triggerSwarmChatResponse = async (history: any[], stamina: number) => {
+    if (stamina <= 0 || managerTab !== 'chat' || swarmChatParticipants.size === 0) return;
+
+    // Clear old controller if it exists
+    if (swarmChatAbortControllerRef.current) swarmChatAbortControllerRef.current.abort();
+    swarmChatAbortControllerRef.current = new AbortController();
+    const signal = swarmChatAbortControllerRef.current.signal;
+
+    // Pick a random participant who isn't the last one to speak
+    const participants = Array.from(swarmChatParticipants);
+    const lastSpeakerId = history[history.length - 1]?.botId;
+    const available = participants.filter(id => id !== lastSpeakerId);
+    if (available.length === 0) return;
+
+    const botId = available[Math.floor(Math.random() * available.length)];
+    const identity = savedIdentities.find(i => i.id === botId);
+    if (!identity) return;
+
+    setIsSwarmChatThinking(botId);
+
+    // Use last message as content, previous as context
+    const lastMsg = history[history.length - 1];
+    const prevMsgs = history.slice(-6, -1).map(m => ({
+      pubkey: m.botId || 'curator',
+      content: `[${m.name}]: ${m.content}`
+    }));
+
+    try {
+      const response = await generateBotMessage(identity.settings, identity.id, 'swarm-chat', `[${lastMsg.name}]: ${lastMsg.content}`, prevMsgs);
+      
+      if (signal.aborted) return;
+      
+      setIsSwarmChatThinking(null);
+
+      if (response) {
+        const newMessage = {
+          id: Math.random().toString(36).substring(7),
+          botId: identity.id,
+          name: identity.name,
+          content: response,
+          timestamp: Date.now()
+        };
+        
+        setSwarmChatMessages(prev => {
+          const next = [...prev, newMessage];
+          // Chain the next response with reduced stamina
+          setTimeout(() => {
+            if (!signal.aborted) triggerSwarmChatResponse(next, stamina - 1);
+          }, 2000 + Math.random() * 3000);
+          return next;
+        });
+      }
+    } catch (e) {
+      setIsSwarmChatThinking(null);
+    }
+  };
+
+  const sendSwarmChatMessage = (content: string) => {
+    const newMessage = {
+      id: Math.random().toString(36).substring(7),
+      name: curatorProfile?.name || 'Curator',
+      content,
+      timestamp: Date.now()
+    };
+    
+    setSwarmChatMessages(prev => {
+      const next = [...prev, newMessage];
+      // Reset stamina to 5 for a new user-initiated chain
+      triggerSwarmChatResponse(next, 5);
+      return next;
+    });
   };
 
   const unpublishPersona = async (eventToDelete: any) => {
@@ -2302,8 +2401,7 @@ export default function App() {
             </button>
 
             <button 
-              onClick={() => setCurrentView('settings')}
-              className={cn(
+              onClick={() => setCurrentView('settings')}              className={cn(
                 "flex items-center gap-2 px-2 py-1 rounded-sm transition-all text-xs font-bold uppercase tracking-wider border",
                 currentView === 'settings' 
                   ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-[0_0_8px_rgba(16,185,129,0.1)]" 
@@ -3402,14 +3500,78 @@ export default function App() {
                   <Globe className="w-4 h-4" />
                   Marketplace
                 </button>
+                <button 
+                  onClick={() => setManagerTab('chat')}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-sm transition-all text-xs font-bold uppercase tracking-widest border",
+                    managerTab === 'chat' 
+                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                      : "bg-surface-container-high text-on-surface-variant border-outline/10 hover:border-outline/20"
+                  )}
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  Interaction Room
+                </button>
               </section>
               
-              <div className="hidden lg:flex flex-1 flex flex-col items-center justify-center p-8 bg-surface-container/30 border border-dashed border-outline/10 rounded-sm opacity-30 text-center space-y-2">
-                <Brain className="w-12 h-12" />
-                <p className="text-[10px] font-bold uppercase tracking-widest max-w-[150px]">
-                  Build your swarm, dominate the feed.
-                </p>
-              </div>
+              {managerTab === 'chat' ? (
+                <section className="bg-surface-container border border-outline/10 rounded-sm flex-1 flex flex-col overflow-hidden shadow-sm mt-2">
+                  <div className="px-3 py-2 bg-surface-container-low border-b border-outline/10 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Users className="w-4 h-4 text-emerald-400" />
+                      <h2 className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">Participants</h2>
+                    </div>
+                    <span className="text-[10px] font-black text-emerald-400/60 uppercase">{swarmChatParticipants.size} Selected</span>
+                  </div>
+                  
+                  <div className="flex-1 overflow-y-auto p-2 custom-scrollbar bg-surface space-y-1">
+                    {savedIdentities.filter(i => !i.deleted).map(identity => {
+                      const isSelected = swarmChatParticipants.has(identity.id);
+                      return (
+                        <button
+                          key={identity.id}
+                          onClick={() => {
+                            setSwarmChatParticipants(prev => {
+                              const next = new Set(prev);
+                              if (isSelected) next.delete(identity.id);
+                              else next.add(identity.id);
+                              return next;
+                            });
+                          }}
+                          className={cn(
+                            "w-full flex items-center gap-2 p-2 rounded-sm border transition-all text-left group",
+                            isSelected 
+                              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" 
+                              : "bg-surface-container-high border-outline/5 text-on-surface-variant hover:border-outline/20"
+                          )}
+                        >
+                          <img 
+                            src={identity.settings.profile.picture} 
+                            alt="" 
+                            className={cn(
+                              "w-6 h-6 rounded-sm object-cover border transition-all grayscale",
+                              isSelected ? "border-emerald-500/50 grayscale-0" : "border-outline/10"
+                            )}
+                            crossOrigin="anonymous"
+                          />
+                          <span className="text-xs font-bold truncate flex-1 uppercase tracking-tight">{identity.name}</span>
+                          {isSelected && <Check className="w-3 h-3" />}
+                        </button>
+                      );
+                    })}
+                    {savedIdentities.filter(i => !i.deleted).length === 0 && (
+                      <p className="text-[10px] text-center text-on-surface-variant/40 italic py-4 px-2">No bots found. Create some first!</p>
+                    )}
+                  </div>
+                </section>
+              ) : (
+                <div className="hidden lg:flex flex-1 flex flex-col items-center justify-center p-8 bg-surface-container/30 border border-dashed border-outline/10 rounded-sm opacity-30 text-center space-y-2 mt-2">
+                  <Brain className="w-12 h-12" />
+                  <p className="text-[10px] font-bold uppercase tracking-widest max-w-[150px]">
+                    Build your swarm, dominate the feed.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Right Content for Manager */}
@@ -3417,9 +3579,13 @@ export default function App() {
               <section className="bg-surface-container border border-outline/10 rounded-sm flex-1 flex flex-col overflow-hidden shadow-sm">
                 <div className="px-4 py-3 bg-surface-container-low border-b border-outline/10 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    {managerTab === 'local' ? <Users className="w-5 h-5 text-emerald-500" /> : <Globe className="w-5 h-5 text-emerald-500" />}
+                    {managerTab === 'local' ? <Users className="w-5 h-5 text-emerald-500" /> : 
+                     managerTab === 'community' ? <Globe className="w-5 h-5 text-emerald-500" /> :
+                     <MessageSquare className="w-5 h-5 text-emerald-400" />}
                     <h2 className="text-sm font-black uppercase tracking-[0.15em] text-white">
-                      {managerTab === 'local' ? 'My Local Swarm' : 'Global Marketplace'}
+                      {managerTab === 'local' ? 'My Local Swarm' : 
+                       managerTab === 'community' ? 'Global Marketplace' :
+                       'Interaction Room'}
                     </h2>
                   </div>
                   {managerTab === 'local' && (
@@ -3431,199 +3597,209 @@ export default function App() {
                       Create Bot
                     </button>
                   )}
+                  {managerTab === 'chat' && (
+                    <button 
+                      onClick={handleClearSwarmChat}
+                      className="p-1.5 hover:bg-red-500/10 text-on-surface-variant hover:text-red-400 rounded-sm transition-all"
+                      title="Clear and Stop"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-3 custom-scrollbar bg-surface">
+                <div className="flex-1 flex flex-col min-h-0 bg-surface">
                   {managerTab === 'local' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                      {savedIdentities.filter(i => !i.deleted).length === 0 ? (
-                        <div className="col-span-full py-20 flex flex-col items-center justify-center text-center space-y-4">
-                          <div className="w-16 h-16 rounded-full bg-emerald-500/5 flex items-center justify-center border border-emerald-500/10">
-                            <Plus className="w-8 h-8 text-emerald-500/20" />
+                    <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                        {savedIdentities.filter(i => !i.deleted).length === 0 ? (
+                          <div className="col-span-full py-20 flex flex-col items-center justify-center text-center space-y-4">
+                            <div className="w-16 h-16 rounded-full bg-emerald-500/5 flex items-center justify-center border border-emerald-500/10">
+                              <Plus className="w-8 h-8 text-emerald-500/20" />
+                            </div>
+                            <div className="space-y-1 px-4">
+                              <h3 className="text-sm font-black text-on-surface uppercase tracking-widest">No Bots Found</h3>
+                              <p className="text-xs text-on-surface-variant max-w-xs mx-auto leading-relaxed">
+                                Click the <span className="text-emerald-500 font-bold">Create Bot</span> button above to make your first bot, 
+                                or check the <span className="text-emerald-500 font-bold underline cursor-pointer" onClick={() => setManagerTab('community')}>Marketplace</span> for more options.
+                              </p>
+                            </div>
                           </div>
-                          <div className="space-y-1 px-4">
-                            <h3 className="text-sm font-black text-on-surface uppercase tracking-widest">No Bots Found</h3>
-                            <p className="text-xs text-on-surface-variant max-w-xs mx-auto leading-relaxed">
-                              Click the <span className="text-emerald-500 font-bold">Create Bot</span> button above to make your first bot, 
-                              or check the <span className="text-emerald-500 font-bold underline cursor-pointer" onClick={() => setManagerTab('community')}>Marketplace</span> for more options.
-                            </p>
-                          </div>
+                        ) : (
+                          savedIdentities.filter(i => !i.deleted).map((identity) => (
+                            <div 
+                              key={identity.id}
+                              className={cn(
+                                "group p-3 rounded-sm border transition-all flex flex-col gap-3 relative overflow-hidden shadow-sm",
+                                activeIdentityId === identity.id 
+                                  ? "bg-emerald-500/[0.03] border-emerald-500/30" 
+                                  : "bg-surface-container border-outline/10 hover:border-outline/30"
+                              )}
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <img 
+                                  src={identity.settings.profile.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${identity.id}`} 
+                                  alt="" 
+                                  className="w-10 h-10 rounded-sm bg-surface-container-high border border-outline/10 object-cover shadow-sm"
+                                  crossOrigin="anonymous"
+                                  referrerPolicy="no-referrer"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <h4 className="text-sm font-black text-on-surface truncate leading-tight">{identity.name}</h4>
+                                  <p className="text-xs text-on-surface-variant font-mono truncate">
+                                    {identity.npub 
+                                      ? identity.npub.substring(0, 14) 
+                                      : nip19.npubEncode(getPublicKey(nip19.decode(identity.nsec).data as any)).substring(0, 14)}...
+                                  </p>
+                                </div>
+                                
+                                <div className="flex items-center gap-1 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                                  <button 
+                                    onClick={() => {
+                                      loadIdentity(identity);
+                                      setCurrentView('dashboard');
+                                      setRightTab('persona');
+                                    }}
+                                    className={cn(
+                                      "p-1.5 rounded-sm transition-all shadow-md",
+                                      activeIdentityId === identity.id 
+                                        ? "bg-emerald-500 text-black" 
+                                        : "bg-surface-container-high text-on-surface-variant hover:text-white border border-outline/10"
+                                    )}
+                                    title="Load Settings"
+                                  >
+                                    <SettingsIcon className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => isRunning(identity.id) ? stopBot(identity.id) : startBot(identity)}
+                                    disabled={!identity.settings.targetNpub && !identity.settings.proactive?.enabled}
+                                    className={cn(
+                                      "p-1.5 rounded-sm transition-all shadow-md",
+                                      isRunning(identity.id)
+                                        ? "bg-red-500 text-white hover:bg-red-600"
+                                        : (!identity.settings.targetNpub && !identity.settings.proactive?.enabled)
+                                          ? "bg-surface-container-high text-on-surface-variant/40 cursor-not-allowed"
+                                          : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black border border-emerald-500/20"
+                                    )}
+                                    title={isRunning(identity.id) ? "Stop Bot" : "Start Bot"}
+                                  >
+                                    {isRunning(identity.id) ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      if (confirm('Permanently delete this identity?')) {
+                                        setSavedIdentities(prev => prev.map(i => i.id === identity.id ? { ...i, deleted: true, updatedAt: Date.now() } : i));
+                                      }
+                                    }}
+                                    className="p-1.5 bg-surface-container-high text-on-surface-variant hover:text-red-400 rounded-sm transition-all shadow-md border border-outline/10"                                  title="Delete"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Stats Infocard */}
+                              <div className="flex items-center gap-3 p-2 bg-surface rounded-sm border border-outline/5 shadow-inner">
+                                <div className="flex items-center gap-2.5">
+                                  <span className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mr-0.5">Sent</span>
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1" title="Notes Sent">
+                                      <FileText className="w-2.5 h-2.5 text-blue-400/60" />
+                                      <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.proactiveNotesSent)}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1" title="Replies Sent">
+                                      <MessageSquare className="w-2.5 h-2.5 text-emerald-400/60" />
+                                      <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.repliesSent)}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1" title="Reactions Sent">
+                                      <Heart className="w-2.5 h-2.5 text-pink-400/60" />
+                                      <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.reactionsSent)}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1" title="Reposts Sent">
+                                      <RefreshCw className="w-2.5 h-2.5 text-emerald-400/60" />
+                                      <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.repostsSent)}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                <div className="w-px h-3 bg-outline/10" />
+
+                                <div className="flex items-center gap-2.5">
+                                  <span className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mr-0.5">Rcvd</span>
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1" title="Mentions Received">
+                                      <MessageSquare className="w-2.5 h-2.5 text-emerald-500 fill-emerald-500/10" />
+                                      <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.repliesReceived)}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1" title="Reactions Received">
+                                      <Heart className="w-2.5 h-2.5 text-pink-500 fill-pink-500/10" />
+                                      <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.reactionsReceived)}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Unified Status Bar at Bottom */}
+                              <div className={cn(
+                                "mt-auto -mx-3 -mb-3 px-3 py-1.5 border-t flex items-center justify-between transition-colors",
+                                isRunning(identity.id) 
+                                  ? "bg-emerald-500/10 border-emerald-500/20" 
+                                  : "bg-surface-container-high border-outline/10"
+                              )}>
+                                <div className="flex items-center gap-1.5">
+                                  {isRunning(identity.id) ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
+                                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live</span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60 italic">Idle</span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-1.5 min-w-0 max-w-[60%]">
+                                  {(() => {
+                                    const targetPk = (() => {
+                                      try { 
+                                        const decoded = nip19.decode(identity.settings.targetNpub) as any;
+                                        return decoded.type === 'npub' ? (decoded.data as string) : '';
+                                      } catch (e) { return ''; }
+                                    })();
+                                    const profile = targetPk ? communityProfiles[targetPk] : null;
+                                    return (
+                                      <>
+                                        {targetPk ? (
+                                          <div className="flex items-center gap-1.5 min-w-0">
+                                            <img 
+                                              src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${targetPk}`} 
+                                              className="w-4 h-4 rounded-sm object-cover border border-outline/10 shrink-0 shadow-sm" 
+                                              alt=""
+                                              crossOrigin="anonymous"
+                                              referrerPolicy="no-referrer"
+                                            />
+                                            <span className="text-[10px] font-bold text-on-surface-variant truncate tracking-tight">
+                                              {identity.settings.targetName || profile?.name || identity.settings.targetNpub.substring(0, 8)}
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <div className="flex items-center gap-1 opacity-40">
+                                            <Brain className="w-3 h-3" />
+                                            <span className="text-[10px] font-bold uppercase tracking-widest">Self-Directed</span>
+                                          </div>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            </div>
+                            ))
+                          )}
                         </div>
-                      ) : (
-                        savedIdentities.filter(i => !i.deleted).map((identity) => (
-                          <div 
-                            key={identity.id}
-                            className={cn(
-                              "group p-3 rounded-sm border transition-all flex flex-col gap-3 relative overflow-hidden shadow-sm",
-                              activeIdentityId === identity.id 
-                                ? "bg-emerald-500/[0.03] border-emerald-500/30" 
-                                : "bg-surface-container border-outline/10 hover:border-outline/30"
-                            )}
-                          >
-                            <div className="flex items-center gap-2.5">
-                              <img 
-                                src={identity.settings.profile.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${identity.id}`} 
-                                alt="" 
-                                className="w-10 h-10 rounded-sm bg-surface-container-high border border-outline/10 object-cover shadow-sm"
-                                crossOrigin="anonymous"
-                                referrerPolicy="no-referrer"
-                              />
-                              <div className="min-w-0 flex-1">
-                                <h4 className="text-sm font-black text-on-surface truncate leading-tight">{identity.name}</h4>
-                                <p className="text-xs text-on-surface-variant font-mono truncate">
-                                  {identity.npub 
-                                    ? identity.npub.substring(0, 14) 
-                                    : nip19.npubEncode(getPublicKey(nip19.decode(identity.nsec).data as any)).substring(0, 14)}...
-                                </p>
-                              </div>
-                              
-                              <div className="flex items-center gap-1 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
-                                <button 
-                                  onClick={() => {
-                                    loadIdentity(identity);
-                                    setCurrentView('dashboard');
-                                    setRightTab('persona');
-                                  }}
-                                  className={cn(
-                                    "p-1.5 rounded-sm transition-all shadow-md",
-                                    activeIdentityId === identity.id 
-                                      ? "bg-emerald-500 text-black" 
-                                      : "bg-surface-container-high text-on-surface-variant hover:text-white border border-outline/10"
-                                  )}
-                                  title="Load Settings"
-                                >
-                                  <SettingsIcon className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => isRunning(identity.id) ? stopBot(identity.id) : startBot(identity)}
-                                  disabled={!identity.settings.targetNpub && !identity.settings.proactive?.enabled}
-                                  className={cn(
-                                    "p-1.5 rounded-sm transition-all shadow-md",
-                                    isRunning(identity.id)
-                                      ? "bg-red-500 text-white hover:bg-red-600"
-                                      : (!identity.settings.targetNpub && !identity.settings.proactive?.enabled)
-                                        ? "bg-surface-container-high text-on-surface-variant/40 cursor-not-allowed"
-                                        : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black border border-emerald-500/20"
-                                  )}
-                                  title={isRunning(identity.id) ? "Stop Bot" : "Start Bot"}
-                                >
-                                  {isRunning(identity.id) ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    if (confirm('Permanently delete this identity?')) {
-                                      setSavedIdentities(prev => prev.map(i => i.id === identity.id ? { ...i, deleted: true, updatedAt: Date.now() } : i));
-                                    }
-                                  }}
-                                  className="p-1.5 bg-surface-container-high text-on-surface-variant hover:text-red-400 rounded-sm transition-all shadow-md border border-outline/10"                                  title="Delete"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* Stats Infocard */}
-                            <div className="flex items-center gap-3 p-2 bg-surface rounded-sm border border-outline/5 shadow-inner">
-                              <div className="flex items-center gap-2.5">
-                                <span className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mr-0.5">Sent</span>
-                                <div className="flex items-center gap-2">
-                                  <div className="flex items-center gap-1" title="Notes Sent">
-                                    <FileText className="w-2.5 h-2.5 text-blue-400/60" />
-                                    <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.proactiveNotesSent)}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1" title="Replies Sent">
-                                    <MessageSquare className="w-2.5 h-2.5 text-emerald-400/60" />
-                                    <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.repliesSent)}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1" title="Reactions Sent">
-                                    <Heart className="w-2.5 h-2.5 text-pink-400/60" />
-                                    <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.reactionsSent)}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1" title="Reposts Sent">
-                                    <RefreshCw className="w-2.5 h-2.5 text-purple-400/60" />
-                                    <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.repostsSent)}</span>
-                                  </div>
-                                </div>
-                              </div>
-                              
-                              <div className="w-px h-3 bg-outline/10" />
-
-                              <div className="flex items-center gap-2.5">
-                                <span className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mr-0.5">Rcvd</span>
-                                <div className="flex items-center gap-2">
-                                  <div className="flex items-center gap-1" title="Mentions Received">
-                                    <MessageSquare className="w-2.5 h-2.5 text-emerald-500 fill-emerald-500/10" />
-                                    <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.repliesReceived)}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1" title="Reactions Received">
-                                    <Heart className="w-2.5 h-2.5 text-pink-500 fill-pink-500/10" />
-                                    <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.reactionsReceived)}</span>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Unified Status Bar at Bottom */}
-                            <div className={cn(
-                              "mt-auto -mx-3 -mb-3 px-3 py-1.5 border-t flex items-center justify-between transition-colors",
-                              isRunning(identity.id) 
-                                ? "bg-emerald-500/10 border-emerald-500/20" 
-                                : "bg-surface-container-high border-outline/10"
-                            )}>
-                              <div className="flex items-center gap-1.5">
-                                {isRunning(identity.id) ? (
-                                  <div className="flex items-center gap-1.5">
-                                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live</span>
-                                  </div>
-                                ) : (
-                                  <span className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60 italic">Idle</span>
-                                )}
-                              </div>
-
-                              <div className="flex items-center gap-1.5 min-w-0 max-w-[60%]">
-                                {(() => {
-                                  const targetPk = (() => {
-                                    try { 
-                                      const decoded = nip19.decode(identity.settings.targetNpub) as any;
-                                      return decoded.type === 'npub' ? (decoded.data as string) : '';
-                                    } catch (e) { return ''; }
-                                  })();
-                                  const profile = targetPk ? communityProfiles[targetPk] : null;
-                                  return (
-                                    <>
-                                      {targetPk ? (
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                          <img 
-                                            src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${targetPk}`} 
-                                            className="w-4 h-4 rounded-sm object-cover border border-outline/10 shrink-0 shadow-sm" 
-                                            alt=""
-                                            crossOrigin="anonymous"
-                                            referrerPolicy="no-referrer"
-                                          />
-                                          <span className="text-[10px] font-bold text-on-surface-variant truncate tracking-tight">
-                                            {identity.settings.targetName || profile?.name || identity.settings.targetNpub.substring(0, 8)}
-                                          </span>
-                                        </div>
-                                      ) : (
-                                        <div className="flex items-center gap-1 opacity-40">
-                                          <Brain className="w-3 h-3" />
-                                          <span className="text-[10px] font-bold uppercase tracking-widest">Self-Directed</span>
-                                        </div>
-                                      )}
-                                    </>
-                                  );
-                                })()}
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
-
+                      </div>
+                    )}
                   {managerTab === 'community' && (
-                    <div className="flex-1 flex flex-col min-h-0">
+                    <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
                       {isDiscovering && communityPersonas.length === 0 ? (
                         <div className="h-full py-20 flex flex-col items-center justify-center space-y-4 opacity-30 text-on-surface">
                           <RefreshCw className="w-12 h-12 animate-spin text-emerald-500" />
@@ -3753,6 +3929,105 @@ export default function App() {
                           ))}
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {managerTab === 'chat' && (
+                    <div className="flex-1 flex flex-col min-h-0 bg-surface">
+                      <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-4 min-h-0">
+                        {swarmChatMessages.length === 0 ? (
+                          <div className="h-full flex flex-col items-center justify-center text-on-surface-variant opacity-20 space-y-3">
+                            <Brain className="w-16 h-16" />
+                            <div className="text-center px-4">
+                              <p className="text-sm font-black uppercase tracking-widest">Local Interaction Room</p>
+                              <p className="text-xs font-bold max-w-[250px] mt-1 mx-auto leading-relaxed">
+                                Select participants in the sidebar and drop a message to start the chain.
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          swarmChatMessages.map((msg) => {
+                            const isBot = !!msg.botId;
+                            const bot = isBot ? savedIdentities.find(i => i.id === msg.botId) : null;
+                            
+                            return (
+                              <motion.div 
+                                key={msg.id}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className={cn(
+                                  "flex gap-3",
+                                  isBot ? "flex-row" : "flex-row-reverse"
+                                )}
+                              >
+                                <div className="shrink-0 mt-1">
+                                  <img 
+                                    src={isBot ? bot?.settings.profile.picture : curatorProfile?.picture || `https://api.dicebear.com/7.x/pixel-art/svg?seed=curator`}
+                                    alt="" 
+                                    className={cn(
+                                      "w-8 h-8 rounded-sm object-cover border shadow-sm",
+                                      isBot ? "border-emerald-500/30" : "border-outline/20 grayscale"
+                                    )}
+                                    crossOrigin="anonymous"
+                                  />
+                                </div>
+                                <div className={cn(
+                                  "max-w-[85%] flex flex-col gap-1",
+                                  isBot ? "items-start" : "items-end"
+                                )}>
+                                  <div className="flex items-center gap-2 px-1">
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60">{msg.name}</span>
+                                    <span className="text-[9px] font-mono text-on-surface-variant/30">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                  </div>
+                                  <div className={cn(
+                                    "px-4 py-2.5 rounded-sm text-sm font-medium shadow-sm leading-relaxed border",
+                                    isBot ? "bg-surface-container-high border-emerald-500/20 text-on-surface" : "bg-emerald-500/10 border-emerald-500/20 text-on-surface"
+                                  )}>
+                                    {msg.content}
+                                  </div>
+                                </div>
+                              </motion.div>
+                            );
+                          })
+                        )}
+                        {isSwarmChatThinking && (
+                          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-3">
+                            <div className="w-8 h-8 rounded-sm bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center animate-pulse">
+                              <Brain className="w-4 h-4 text-emerald-400" />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400/60 animate-pulse">
+                                {savedIdentities.find(i => i.id === isSwarmChatThinking)?.name} is thinking...
+                              </span>
+                            </div>
+                          </motion.div>
+                        )}
+                        <div id="swarm-chat-end" />
+                      </div>
+
+                      {/* Input Area */}
+                      <div className="p-4 bg-surface-container-low border-t border-outline/10">
+                        <div className="flex gap-2">
+                          <input 
+                            type="text"
+                            placeholder={swarmChatParticipants.size > 0 ? "Type a message to the swarm..." : "Select participants in sidebar first..."}
+                            disabled={swarmChatParticipants.size === 0}
+                            className="flex-1 bg-surface border border-outline/20 rounded-sm px-4 py-3 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors shadow-inner disabled:opacity-50 disabled:cursor-not-allowed"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                                sendSwarmChatMessage(e.currentTarget.value.trim());
+                                e.currentTarget.value = '';
+                              }
+                            }}
+                          />
+                          <button 
+                            disabled={swarmChatParticipants.size === 0}
+                            className="px-6 bg-emerald-500 text-black font-black text-xs uppercase tracking-[0.2em] rounded-sm hover:bg-emerald-400 transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Send
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>

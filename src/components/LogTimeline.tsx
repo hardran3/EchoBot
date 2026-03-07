@@ -1,7 +1,7 @@
 
 import React, { useMemo } from 'react';
 import { Activity, Trash2, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
-import { LogEntry, ProfileInfo } from '../types';
+import { LogEntry, ProfileInfo, Identity } from '../types';
 import { cn } from '../types';
 import { nip19 } from 'nostr-tools';
 
