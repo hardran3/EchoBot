@@ -119,7 +119,11 @@ self.addEventListener('message', async (event: any) => {
                 finalOutput = finalOutput.substring(prompt.length).trim();
             }
 
-            finalOutput = finalOutput.replace(/^(assistant|bot|reply):/i, '').trim();
+            // Remove common character prefixes
+            finalOutput = finalOutput.replace(/^(assistant|bot|reply|character|in character as|{name}|{target_name}):/i, '').trim();
+            
+            // Remove wrapping quotes (both double and single)
+            finalOutput = finalOutput.replace(/^["']+|["']+$/g, '').trim();
 
             if (finalOutput.includes('\n')) {
                 finalOutput = finalOutput.split('\n')[0].trim();
