@@ -12,6 +12,7 @@ import {
   Play, 
   Square, 
   Settings as SettingsIcon, 
+  ShieldAlert,
   User, 
   Activity, 
   Target, 
@@ -22,6 +23,7 @@ import {
   Smile,
   Check,
   Globe,
+  Layout,
   AlertCircle,
   CheckCircle2,
   Info,
@@ -158,7 +160,7 @@ export default function App() {
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [showManager, setShowManager] = useState(false);
   const [managerTab, setManagerTab] = useState<'local' | 'community'>('local');
-  const [settingsTab, setSettingsTab] = useState<'general' | 'ai'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'ai' | 'advanced'>('general');
   const [globalUseCuratorLightning, setGlobalUseCuratorLightning] = useState(() => {
     return localStorage.getItem(STORAGE_KEY_GLOBAL_LIGHTNING_SYNC) === 'true';
   });
@@ -170,6 +172,7 @@ export default function App() {
   const [swarmSearchQuery, setSwarmSearchQuery] = useState('');
   const [savedIdentities, setSavedIdentities] = useState<Identity[]>([]);
   const [activeIdentityId, setActiveIdentityId] = useState<string | null>(null);
+  const [currentView, setCurrentView] = useState<'dashboard' | 'manager' | 'settings'>('dashboard');
 
   const [targetFollows, setTargetFollows] = useState<string[]>([]);
 
@@ -2165,27 +2168,52 @@ export default function App() {
             )}
 
             <button 
-              onClick={() => {
-                setManagerTab('local');
-                setShowManager(true);
-              }}
-              className="flex items-center gap-2 px-2 py-1 bg-surface-container-high text-on-surface-variant rounded-sm hover:bg-surface-container hover:text-white transition-colors text-xs font-bold uppercase tracking-wider border border-outline/10"
+              onClick={() => setCurrentView('dashboard')}
+              className={cn(
+                "flex items-center gap-2 px-2 py-1 rounded-sm transition-all text-xs font-bold uppercase tracking-wider border",
+                currentView === 'dashboard' 
+                  ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-[0_0_8px_rgba(16,185,129,0.1)]" 
+                  : "bg-surface-container-high text-on-surface-variant border-outline/10 hover:bg-surface-container hover:text-white"
+              )}
+              title="View Dashboard"
+            >
+              <Layout className="w-3.5 h-3.5" />
+              Dashboard
+            </button>
+
+            <button 
+              onClick={() => setCurrentView('manager')}
+              className={cn(
+                "flex items-center gap-2 px-2 py-1 rounded-sm transition-all text-xs font-bold uppercase tracking-wider border",
+                currentView === 'manager' 
+                  ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-[0_0_8px_rgba(16,185,129,0.1)]" 
+                  : "bg-surface-container-high text-on-surface-variant border-outline/10 hover:bg-surface-container hover:text-white"
+              )}
               title="Manage Identities"
             >
-              <Users className="w-3 h-3" />
+              <Users className="w-3.5 h-3.5" />
               Manage Bots
             </button>
+
             <button 
-              onClick={() => setShowSettingsDialog(true)}
-              className="p-1.5 hover:bg-surface-container-high rounded-sm transition-colors text-on-surface-variant hover:text-white"
-              title="Bot Settings"
+              onClick={() => setCurrentView('settings')}
+              className={cn(
+                "flex items-center gap-2 px-2 py-1 rounded-sm transition-all text-xs font-bold uppercase tracking-wider border",
+                currentView === 'settings' 
+                  ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 shadow-[0_0_8px_rgba(16,185,129,0.1)]" 
+                  : "bg-surface-container-high text-on-surface-variant border-outline/10 hover:bg-surface-container hover:text-white"
+              )}
+              title="Application Settings"
             >
-              <SettingsIcon className="w-4.5 h-4.5" />
+              <SettingsIcon className="w-3.5 h-3.5" />
+              Settings
             </button>
             </div>
             </div>
             </header>
       <main className="flex-1 w-full max-w-[1800px] mx-auto px-2 py-2 grid grid-cols-1 lg:grid-cols-12 gap-2 min-h-0">
+        {currentView === 'dashboard' && (
+          <>
         {/* Left Column: Controls */}
         <div className="lg:col-span-3 flex flex-col min-h-0 space-y-2 overflow-hidden">
           <div className="shrink-0 overflow-y-auto custom-scrollbar space-y-2">
@@ -3194,326 +3222,262 @@ export default function App() {
             )}
           </section>
         </div>
-      </main>
+          </>
+        )}
 
-      {/* Unified Identity & Discovery Manager */}
-      <AnimatePresence>
-        {showManager && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-0 md:p-8 bg-black/80 backdrop-blur-sm">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.99 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.99 }}
-              className="bg-surface border border-outline/10 md:rounded-sm w-full h-full max-w-6xl overflow-hidden shadow-2xl flex flex-col"
-            >
-              {/* Header / Tabs */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-outline/10 bg-surface-container-low">
-                <div className="flex items-center gap-6">
-                  <div className="flex items-center gap-2">
-                    <Brain className="w-5 h-5 text-emerald-500" />
-                    <h3 className="text-lg font-black text-white uppercase tracking-tight">Bot Central</h3>
+        {currentView === 'manager' && (
+          <>
+            {/* Left Nav for Manager */}
+            <div className="lg:col-span-3 flex flex-col min-h-0 space-y-2 overflow-hidden">
+              <section className="bg-surface-container border border-outline/10 rounded-sm p-4 flex flex-col gap-2">
+                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-on-surface-variant mb-2">Bot Management</h3>
+                <button 
+                  onClick={() => setManagerTab('local')}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-sm transition-all text-xs font-bold uppercase tracking-widest border",
+                    managerTab === 'local' 
+                      ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" 
+                      : "bg-surface-container-high text-on-surface-variant border-outline/10 hover:border-outline/20"
+                  )}
+                >
+                  <Users className="w-4 h-4" />
+                  My Identities
+                </button>
+                <button 
+                  onClick={() => {
+                    setManagerTab('community');
+                    fetchCommunityPersonas();
+                  }}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-sm transition-all text-xs font-bold uppercase tracking-widest border",
+                    managerTab === 'community' 
+                      ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" 
+                      : "bg-surface-container-high text-on-surface-variant border-outline/10 hover:border-outline/20"
+                  )}
+                >
+                  <Globe className="w-4 h-4" />
+                  Marketplace
+                </button>
+              </section>
+              
+              <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-container/30 border border-dashed border-outline/10 rounded-sm opacity-30 text-center space-y-2">
+                <Brain className="w-12 h-12" />
+                <p className="text-[10px] font-bold uppercase tracking-widest max-w-[150px]">
+                  Build your swarm, dominate the feed.
+                </p>
+              </div>
+            </div>
+
+            {/* Right Content for Manager */}
+            <div className="lg:col-span-9 flex flex-col min-h-0">
+              <section className="bg-surface-container border border-outline/10 rounded-sm flex-1 flex flex-col overflow-hidden shadow-sm">
+                <div className="px-4 py-3 bg-surface-container-low border-b border-outline/10 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {managerTab === 'local' ? <Users className="w-5 h-5 text-emerald-500" /> : <Globe className="w-5 h-5 text-emerald-500" />}
+                    <h2 className="text-sm font-black uppercase tracking-[0.15em] text-white">
+                      {managerTab === 'local' ? 'My Local Swarm' : 'Global Marketplace'}
+                    </h2>
                   </div>
-                  <nav className="flex gap-1 p-1 bg-surface-container-high rounded-sm border border-outline/10">
-                    <button 
-                      onClick={() => setManagerTab('local')}
-                      className={cn(
-                        "px-3 py-1 rounded-none text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2",
-                        managerTab === 'local' ? "bg-on-surface text-surface shadow-md" : "text-on-surface-variant hover:text-on-surface"
-                      )}
+                  {managerTab === 'local' && (
+                    <button
+                      onClick={() => setShowAddIdentityDialog(true)}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500 text-black rounded-sm font-bold text-[10px] uppercase tracking-widest hover:bg-emerald-400 transition-all shadow-md shadow-emerald-500/10"
                     >
-                      <Users className="w-3 h-3" />
-                      My Identities
-                    </button>
-                    <button 
-                      onClick={() => {
-                        setManagerTab('community');
-                        fetchCommunityPersonas();
-                      }}
-                      className={cn(
-                        "px-3 py-1 rounded-none text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2",
-                        managerTab === 'community' ? "bg-on-surface text-surface shadow-md" : "text-on-surface-variant hover:text-on-surface"
-                      )}
-                    >
-                      <Sparkles className="w-3 h-3" />
-                      Marketplace
-                    </button>
-                  </nav>
-                </div>
-                <div className="flex items-center gap-3">
-                  {managerTab === 'community' && (
-                    <button 
-                      onClick={fetchCommunityPersonas}
-                      disabled={isDiscovering}
-                      className="p-1.5 hover:bg-surface-container-high rounded-sm transition-colors text-on-surface-variant hover:text-white disabled:opacity-50 border border-transparent hover:border-outline/10"
-                    >
-                      <RefreshCw className={cn("w-4 h-4", isDiscovering && "animate-spin")} />
+                      <Plus className="w-3.5 h-3.5" />
+                      Create Bot
                     </button>
                   )}
-                  <button onClick={() => setShowManager(false)} className="p-1.5 hover:bg-surface-container-high rounded-sm text-on-surface-variant hover:text-red-400 transition-colors border border-transparent hover:border-outline/10">
-                    <X className="w-5 h-5" />
-                  </button>
                 </div>
-              </div>
 
-              {/* Main Content Area */}
-              <div className="flex-1 overflow-hidden flex bg-surface">
-                {managerTab === 'local' ? (
-                  <div className="flex-1 flex flex-col min-w-0">
-                    <div className="px-4 py-2 border-b border-outline/10 flex justify-between items-center bg-surface-container-low shadow-sm">
-                      <div className="space-y-0.5">
-                        <p className="text-xs text-on-surface-variant font-bold uppercase tracking-widest ml-1">Saved Bots ({savedIdentities.filter(i => !i.deleted).length})</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {isAnyBotRunning && (
-                          <button 
-                            onClick={() => stopBot()}
-                            className="px-2 py-1 bg-red-500/10 text-red-400 border border-red-500/20 rounded-sm text-xs font-bold uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all flex items-center gap-1.5"
-                          >
-                            <Square className="w-3 h-3 fill-current" />
-                            Stop All
-                          </button>
-                        )}
-                        <button 
-                          onClick={() => {
-                            const name = prompt('Enter a name for this bot:');
-                            if (name) saveIdentity(name);
-                          }}
-                          className="px-2 py-1 bg-surface-container-high text-on-surface-variant rounded-sm text-xs font-bold uppercase tracking-widest hover:bg-surface-container hover:text-white transition-all flex items-center gap-1.5 border border-outline/10"
-                        >
-                          <Save className="w-3 h-3" />
-                          Save Current
-                        </button>
-                        <button 
-                          onClick={() => {
-                            setShowManager(false);
-                            setShowAddIdentityDialog(true);
-                          }}
-                          className="px-2 py-1 bg-emerald-500 text-black rounded-sm text-xs font-bold uppercase tracking-widest hover:bg-emerald-400 transition-all flex items-center gap-1.5 shadow-md"
-                        >
-                          <Plus className="w-3 h-3" />
-                          New Bot
-                        </button>
-                        <button
-                          onClick={syncWithCloud}
-                          disabled={isSyncing || !userPubkey}
-                          className={cn(
-                            "px-2 py-1 rounded-sm text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-1.5 border",
-                            isSyncing 
-                              ? "bg-surface-container-high text-on-surface-variant/40 border-outline/10 cursor-not-allowed"
-                              : "bg-purple-500/5 text-purple-400 border-purple-500/20 hover:bg-purple-500 hover:text-black shadow-sm"
-                          )}
-                        >
-                          {showSyncCheck ? (
-                            <>
-                              <Check className="w-3 h-3 text-emerald-400" />
-                              Synced
-                            </>
-                          ) : (
-                            <>
-                              <RefreshCw className={cn("w-3 h-3", isSyncing && "animate-spin")} />
-                              {isSyncing ? "Syncing..." : "Sync"}
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto p-3 custom-scrollbar bg-surface">
+                  {managerTab === 'local' ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
                       {savedIdentities.filter(i => !i.deleted).length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-20 text-on-surface">
-                          <Users className="w-12 h-12" />
-                          <p className="text-xs font-bold uppercase tracking-widest italic">No saved bots yet.</p>
+                        <div className="h-full py-20 flex flex-col items-center justify-center opacity-20">
+                          <Users className="w-12 h-12 mb-4" />
+                          <p className="text-sm font-bold uppercase tracking-widest italic">No local identities found.</p>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                          {savedIdentities.filter(i => !i.deleted).map((identity) => (
-                            <div 
-                              key={identity.id}
-                              className={cn(
-                                "group p-3 rounded-sm border transition-all flex flex-col gap-3 relative overflow-hidden shadow-sm",
-                                activeIdentityId === identity.id 
-                                  ? "bg-emerald-500/[0.03] border-emerald-500/30" 
-                                  : "bg-surface-container border-outline/10 hover:border-outline/30"
-                              )}
-                            >
-                              <div className="flex items-center gap-2.5">
-                                <img 
-                                  src={identity.settings.profile.picture} 
-                                  alt="" 
-                                  className="w-10 h-10 rounded-sm bg-surface-container-high border border-outline/10 object-cover shadow-sm"
-                                  crossOrigin="anonymous"
-                                />
-                                <div className="min-w-0 flex-1">
-                                  <h4 className="text-sm font-black text-on-surface truncate leading-tight">{identity.name}</h4>
-                                  <p className="text-xs text-on-surface-variant font-mono truncate">
-                                    {identity.npub 
-                                      ? identity.npub.substring(0, 14) 
-                                      : nip19.npubEncode(getPublicKey(nip19.decode(identity.nsec).data as any)).substring(0, 14)}...
-                                  </p>
-                                </div>
-                                
-                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <button 
-                                    onClick={() => loadIdentity(identity)}
-                                    className={cn(
-                                      "p-1.5 rounded-sm transition-all shadow-md",
-                                      activeIdentityId === identity.id 
-                                        ? "bg-emerald-500 text-black" 
-                                        : "bg-surface-container-high text-on-surface-variant hover:text-white border border-outline/10"
-                                    )}
-                                    title="Load Settings"
-                                  >
-                                    <SettingsIcon className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={() => isRunning(identity.id) ? stopBot(identity.id) : startBot(identity)}
-                                    disabled={!identity.settings.targetNpub && !identity.settings.proactive?.enabled}
-                                    className={cn(
-                                      "p-1.5 rounded-sm transition-all shadow-md",
-                                      isRunning(identity.id)
-                                        ? "bg-red-500 text-white hover:bg-red-600"
-                                        : (!identity.settings.targetNpub && !identity.settings.proactive?.enabled)
-                                          ? "bg-surface-container-high text-on-surface-variant/40 cursor-not-allowed"
-                                          : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black border border-emerald-500/20"
-                                    )}                                    title={isRunning(identity.id) ? "Stop Bot" : "Start Bot"}
-                                  >
-                                    {isRunning(identity.id) ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                                  </button>
-                                  <button 
-                                    onClick={() => deleteIdentity(identity.id)}
-                                    className="p-1.5 bg-surface-container-high text-on-surface-variant hover:text-red-400 rounded-sm transition-all shadow-md border border-outline/10"
-                                    title="Delete"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
+                        savedIdentities.filter(i => !i.deleted).map((identity) => (
+                          <div 
+                            key={identity.id}
+                            className={cn(
+                              "group p-3 rounded-sm border transition-all flex flex-col gap-3 relative overflow-hidden shadow-sm",
+                              activeIdentityId === identity.id 
+                                ? "bg-emerald-500/[0.03] border-emerald-500/30" 
+                                : "bg-surface-container border-outline/10 hover:border-outline/30"
+                            )}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <img 
+                                src={identity.settings.profile.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${identity.id}`} 
+                                alt="" 
+                                className="w-10 h-10 rounded-sm bg-surface-container-high border border-outline/10 object-cover shadow-sm"
+                                crossOrigin="anonymous"
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <h4 className="text-sm font-black text-on-surface truncate leading-tight">{identity.name}</h4>
+                                <p className="text-xs text-on-surface-variant font-mono truncate">
+                                  {identity.npub 
+                                    ? identity.npub.substring(0, 14) 
+                                    : nip19.npubEncode(getPublicKey(nip19.decode(identity.nsec).data as any)).substring(0, 14)}...
+                                </p>
                               </div>
-
-                              {/* Stats Infocard - Single Line Layout */}
-                              <div className="flex items-center gap-3 p-2 bg-surface rounded-sm border border-outline/5 shadow-inner">
-                                <div className="flex items-center gap-2.5">
-                                  <span className="text-xs font-black text-on-surface-variant uppercase tracking-widest mr-0.5">Sent</span>
-                                  <div className="flex items-center gap-2">
-                                    <div className="flex items-center gap-1" title="Notes Sent">
-                                      <FileText className="w-3 h-3 text-blue-400/60" />
-                                      <span className="text-xs font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.proactiveNotesSent)}</span>
-                                    </div>
-                                    <div className="flex items-center gap-1" title="Replies Sent">
-                                      <MessageSquare className="w-3 h-3 text-emerald-400/60" />
-                                      <span className="text-xs font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.repliesSent)}</span>
-                                    </div>
-                                    <div className="flex items-center gap-1" title="Reactions Sent">
-                                      <Heart className="w-3 h-3 text-pink-400/60" />
-                                      <span className="text-xs font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.reactionsSent)}</span>
-                                    </div>
-                                    <div className="flex items-center gap-1" title="Reposts Sent">
-                                      <RefreshCw className="w-3 h-3 text-purple-400/60" />
-                                      <span className="text-xs font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.repostsSent)}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                                
-                                <div className="w-px h-3 bg-outline/10" />
-
-                                <div className="flex items-center gap-2.5">
-                                  <span className="text-xs font-black text-on-surface-variant uppercase tracking-widest mr-0.5">Rcvd</span>
-                                  <div className="flex items-center gap-2">
-                                    <div className="flex items-center gap-1" title="Mentions Received">
-                                      <MessageSquare className="w-3 h-3 text-emerald-500 fill-emerald-500/10" />
-                                      <span className="text-xs font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.repliesReceived)}</span>
-                                    </div>
-                                    <div className="flex items-center gap-1" title="Reactions Received">
-                                      <Heart className="w-3 h-3 text-pink-500 fill-pink-500/10" />
-                                      <span className="text-xs font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.reactionsReceived)}</span>
-                                    </div>
-                                  </div>
-                                </div>
+                              
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button 
+                                  onClick={() => loadIdentity(identity)}
+                                  className={cn(
+                                    "p-1.5 rounded-sm transition-all shadow-md",
+                                    activeIdentityId === identity.id 
+                                      ? "bg-emerald-500 text-black" 
+                                      : "bg-surface-container-high text-on-surface-variant hover:text-white border border-outline/10"
+                                  )}
+                                  title="Load Settings"
+                                >
+                                  <SettingsIcon className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => isRunning(identity.id) ? stopBot(identity.id) : startBot(identity)}
+                                  disabled={!identity.settings.targetNpub && !identity.settings.proactive?.enabled}
+                                  className={cn(
+                                    "p-1.5 rounded-sm transition-all shadow-md",
+                                    isRunning(identity.id)
+                                      ? "bg-red-500 text-white hover:bg-red-600"
+                                      : (!identity.settings.targetNpub && !identity.settings.proactive?.enabled)
+                                        ? "bg-surface-container-high text-on-surface-variant/40 cursor-not-allowed"
+                                        : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black border border-emerald-500/20"
+                                  )}
+                                  title={isRunning(identity.id) ? "Stop Bot" : "Start Bot"}
+                                >
+                                  {isRunning(identity.id) ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                                </button>
+                                <button 
+                                  onClick={() => {
+                                    if (confirm('Permanently delete this identity?')) {
+                                      setSavedIdentities(prev => prev.map(i => i.id === identity.id ? { ...i, deleted: true } : i));
+                                    }
+                                  }}
+                                  className="p-1.5 bg-surface-container-high text-on-surface-variant hover:text-red-400 rounded-sm transition-all shadow-md border border-outline/10"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
                               </div>
-
-                              {/* Unified Status Bar at Bottom */}
-                              {(activeIdentityId === identity.id || isRunning(identity.id)) && (
-                                <div className={cn(
-                                  "mt-auto -mx-3 -mb-3 px-3 py-1.5 border-t flex items-center justify-between transition-colors",
-                                  isRunning(identity.id) 
-                                    ? "bg-emerald-500/10 border-emerald-500/20" 
-                                    : "bg-surface-container-high border-outline/10"
-                                )}>
-                                  <div className="flex items-center gap-1.5">
-                                    {isRunning(identity.id) ? (
-                                      <div className="flex items-center gap-1.5">
-                                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
-                                        <span className="text-xs font-black uppercase tracking-widest text-emerald-500">Live</span>
-                                      </div>
-                                    ) : (
-                                      <span className="text-xs font-black uppercase tracking-widest text-emerald-500/60">Focused</span>
-                                    )}
-                                  </div>
-
-                                  <div className="flex items-center gap-1.5 min-w-0 max-w-[60%]">
-                                    {(() => {
-                                      const targetPk = (() => {
-                                        try { 
-                                          const decoded = nip19.decode(identity.settings.targetNpub) as any;
-                                          return decoded.type === 'npub' ? (decoded.data as string) : '';
-                                        } catch (e) { return ''; }
-                                      })();
-                                      const profile = targetPk ? communityProfiles[targetPk] : null;
-                                      return (
-                                        <>
-                                          {targetPk ? (
-                                            <div className="flex items-center gap-1.5 min-w-0">
-                                              <img 
-                                                src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${targetPk}`} 
-                                                className="w-4 h-4 rounded-sm object-cover border border-outline/10 shrink-0 shadow-sm" 
-                                                alt=""
-                                                crossOrigin="anonymous"
-                                              />
-                                              <span className="text-xs font-bold text-on-surface-variant truncate tracking-tight">
-                                                {identity.settings.targetName || profile?.name || identity.settings.targetNpub.substring(0, 8)}
-                                              </span>
-                                            </div>
-                                          ) : (
-                                            <div className="flex items-center gap-1 opacity-40">
-                                              <Activity className="w-2.5 h-2.5 text-emerald-500" />
-                                              <span className="text-xs font-black uppercase tracking-tighter text-emerald-500">Self</span>
-                                            </div>
-                                          )}
-                                        </>
-                                      );                                    })()}
-                                  </div>
-                                </div>
-                              )}
                             </div>
-                          ))}
-                        </div>
+
+                            {/* Stats Infocard */}
+                            <div className="flex items-center gap-3 p-2 bg-surface rounded-sm border border-outline/5 shadow-inner">
+                              <div className="flex items-center gap-2.5">
+                                <span className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mr-0.5">Sent</span>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-1" title="Notes Sent">
+                                    <FileText className="w-2.5 h-2.5 text-blue-400/60" />
+                                    <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.proactiveNotesSent)}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1" title="Replies Sent">
+                                    <MessageSquare className="w-2.5 h-2.5 text-emerald-400/60" />
+                                    <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.repliesSent)}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1" title="Reactions Sent">
+                                    <Heart className="w-2.5 h-2.5 text-pink-400/60" />
+                                    <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.reactionsSent)}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1" title="Reposts Sent">
+                                    <RefreshCw className="w-2.5 h-2.5 text-purple-400/60" />
+                                    <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.repostsSent)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <div className="w-px h-3 bg-outline/10" />
+
+                              <div className="flex items-center gap-2.5">
+                                <span className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mr-0.5">Rcvd</span>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-1" title="Mentions Received">
+                                    <MessageSquare className="w-2.5 h-2.5 text-emerald-500 fill-emerald-500/10" />
+                                    <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.repliesReceived)}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1" title="Reactions Received">
+                                    <Heart className="w-2.5 h-2.5 text-pink-500 fill-pink-500/10" />
+                                    <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(identity.stats?.reactionsReceived)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Unified Status Bar at Bottom */}
+                            {(activeIdentityId === identity.id || isRunning(identity.id)) && (
+                              <div className={cn(
+                                "mt-auto -mx-3 -mb-3 px-3 py-1.5 border-t flex items-center justify-between transition-colors",
+                                isRunning(identity.id) 
+                                  ? "bg-emerald-500/10 border-emerald-500/20" 
+                                  : "bg-surface-container-high border-outline/10"
+                              )}>
+                                <div className="flex items-center gap-1.5">
+                                  {isRunning(identity.id) ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
+                                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live</span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500/60">Focused</span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-1.5 min-w-0 max-w-[60%]">
+                                  {(() => {
+                                    const targetPk = (() => {
+                                      try { 
+                                        const decoded = nip19.decode(identity.settings.targetNpub) as any;
+                                        return decoded.type === 'npub' ? (decoded.data as string) : '';
+                                      } catch (e) { return ''; }
+                                    })();
+                                    const profile = targetPk ? communityProfiles[targetPk] : null;
+                                    return (
+                                      <>
+                                        {targetPk ? (
+                                          <div className="flex items-center gap-1.5 min-w-0">
+                                            <img 
+                                              src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${targetPk}`} 
+                                              className="w-4 h-4 rounded-sm object-cover border border-outline/10 shrink-0 shadow-sm" 
+                                              alt=""
+                                              crossOrigin="anonymous"
+                                              referrerPolicy="no-referrer"
+                                            />
+                                            <span className="text-[10px] font-bold text-on-surface-variant truncate tracking-tight">
+                                              {identity.settings.targetName || profile?.name || identity.settings.targetNpub.substring(0, 8)}
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <div className="flex items-center gap-1 opacity-40">
+                                            <Activity className="w-2.5 h-2.5 text-emerald-500" />
+                                            <span className="text-[10px] font-black uppercase tracking-tighter text-emerald-500">Self</span>
+                                          </div>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))
                       )}
                     </div>
-                  </div>
-                ) : (
-                  <div className="flex-1 flex flex-col min-w-0">
-                    <div className="px-4 py-2 border-b border-outline/10 flex justify-between items-center bg-surface-container-low shadow-sm">
-                      <p className="text-xs text-on-surface-variant font-bold uppercase tracking-widest ml-1">Community Marketplace</p>
-                      <div className="flex items-center gap-3">
-                        {!userPubkey && (
-                          <button 
-                            onClick={handleNip07Login}
-                            className="text-xs font-bold text-emerald-500 hover:underline uppercase tracking-widest"
-                          >
-                            Sign In to Publish
-                          </button>
-                        )}
-                        <span className="text-xs text-on-surface-variant/40 font-bold uppercase tracking-widest">Kind 38752</span>
-                      </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-3 custom-scrollbar bg-surface">
+                  ) : (
+                    <div className="flex-1 flex flex-col min-w-0">
                       {isDiscovering && communityPersonas.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center space-y-4 opacity-30 text-on-surface">
+                        <div className="h-full py-20 flex flex-col items-center justify-center space-y-4 opacity-30 text-on-surface">
                           <RefreshCw className="w-12 h-12 animate-spin text-emerald-500" />
-                          <p className="text-xs font-bold uppercase tracking-widest">Scanning Network...</p>
+                          <p className="text-sm font-bold uppercase tracking-widest">Scanning Network...</p>
                         </div>
                       ) : communityPersonas.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-20 text-on-surface">
+                        <div className="h-full py-20 flex flex-col items-center justify-center space-y-3 opacity-20 text-on-surface">
                           <Sparkles className="w-12 h-12" />
-                          <p className="text-xs font-bold uppercase tracking-widest italic">No community personas found.</p>
+                          <p className="text-sm font-bold uppercase tracking-widest italic">No community personas found.</p>
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -3530,23 +3494,25 @@ export default function App() {
                                     alt="" 
                                     className="w-10 h-10 rounded-sm bg-surface-container-high border border-outline/10 object-cover shadow-sm"
                                     crossOrigin="anonymous"
+                                    referrerPolicy="no-referrer"
                                   />
                                   <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-1.5 mb-0.5">
-                                      <span className="text-xs font-bold uppercase tracking-tighter px-1 py-0.5 bg-tertiary/10 text-tertiary rounded-none border border-tertiary/20 whitespace-nowrap">
+                                      <span className="text-[10px] font-bold uppercase tracking-tighter px-1 py-0.5 bg-emerald-500/10 text-emerald-500 rounded-none border border-emerald-500/20 whitespace-nowrap">
                                         {SUPPORTED_MODELS.find(m => m.id === persona.settings.modelId)?.name.split(' ').pop() || '270M'}
                                       </span>
                                       <h4 className="text-sm font-black text-on-surface truncate leading-tight">{persona.settings.profile.name}</h4>
                                     </div>
                                     <div className="flex items-center gap-1 opacity-80 group/author">
-                                      <span className="text-xs text-on-surface-variant font-medium">by</span>
+                                      <span className="text-[10px] text-on-surface-variant font-medium">by</span>
                                       <img 
                                         src={communityProfiles[persona.author]?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${persona.author}`} 
                                         alt="Creator" 
                                         className="w-3.5 h-3.5 rounded-sm bg-surface-container-high border border-outline/10"
                                         crossOrigin="anonymous"
+                                        referrerPolicy="no-referrer"
                                       />
-                                      <p className="text-xs text-on-surface font-bold truncate group-hover/author:text-emerald-400 transition-colors">
+                                      <p className="text-[10px] text-on-surface font-bold truncate group-hover/author:text-emerald-400 transition-colors">
                                         {communityProfiles[persona.author]?.name || `${persona.author.substring(0, 8)}...`}
                                       </p>
                                     </div>
@@ -3608,7 +3574,7 @@ export default function App() {
                                 </button>
                                 
                                 <span className={cn(
-                                  "text-xs font-black font-mono tracking-tighter",
+                                  "text-[10px] font-black font-mono tracking-tighter",
                                   (personaVotes[persona.id]?.up || 0) - (personaVotes[persona.id]?.down || 0) > 0 ? "text-emerald-500" :
                                   (personaVotes[persona.id]?.up || 0) - (personaVotes[persona.id]?.down || 0) < 0 ? "text-red-500" : "text-on-surface-variant/40"
                                 )}>
@@ -3633,30 +3599,255 @@ export default function App() {
                         </div>
                       )}
                     </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="p-2 px-4 bg-surface-container-low border-t border-outline/10 flex justify-between items-center">
-                <div className="flex items-center gap-4 text-xs text-on-surface-variant font-bold uppercase tracking-widest opacity-50">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
-                    Database Active
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-purple-500 shadow-[0_0_5px_rgba(168,85,247,0.5)]" />
-                    Relay Discovery
-                  </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-xs text-on-surface-variant/40 font-bold uppercase tracking-widest">v0.2.0</span>
-                  <p className="text-xs text-on-surface-variant/60 font-medium">ESC to return</p>
-                </div>
-              </div>
-            </motion.div>
-          </div>
+              </section>
+            </div>
+          </>
         )}
-      </AnimatePresence>
+
+        {currentView === 'settings' && (
+          <>
+            {/* Left Nav for Settings */}
+            <div className="lg:col-span-3 flex flex-col min-h-0 space-y-2 overflow-hidden">
+              <section className="bg-surface-container border border-outline/10 rounded-sm p-4 flex flex-col gap-2">
+                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-on-surface-variant mb-2">App Preferences</h3>
+                <button 
+                  onClick={() => setSettingsTab('general')}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-sm transition-all text-xs font-bold uppercase tracking-widest border",
+                    settingsTab === 'general' 
+                      ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" 
+                      : "bg-surface-container-high text-on-surface-variant border-outline/10 hover:border-outline/20"
+                  )}
+                >
+                  <Activity className="w-4 h-4" />
+                  General
+                </button>
+                <button 
+                  onClick={() => setSettingsTab('ai')}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-sm transition-all text-xs font-bold uppercase tracking-widest border",
+                    settingsTab === 'ai' 
+                      ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" 
+                      : "bg-surface-container-high text-on-surface-variant border-outline/10 hover:border-outline/20"
+                  )}
+                >
+                  <Brain className="w-4 h-4" />
+                  AI Engine
+                </button>
+                <button 
+                  onClick={() => setSettingsTab('advanced')}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-sm transition-all text-xs font-bold uppercase tracking-widest border",
+                    settingsTab === 'advanced' 
+                      ? "bg-red-500/10 text-red-500 border-red-500/20" 
+                      : "bg-surface-container-high text-on-surface-variant border-outline/10 hover:border-outline/20"
+                  )}
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                  Advanced
+                </button>
+              </section>
+              <div className="bg-surface-container/20 border border-outline/5 rounded-sm p-4">
+                <div className="flex items-center gap-2 mb-2 text-on-surface-variant opacity-40">
+                  <Info className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Version 0.2.0</span>
+                </div>
+                <p className="text-[10px] text-on-surface-variant/40 font-medium leading-relaxed">
+                  EchoBot uses local-first storage and private AI inference where possible. Your keys never leave this session.
+                </p>
+              </div>
+            </div>
+
+            {/* Right Content for Settings */}
+            <div className="lg:col-span-9 flex flex-col min-h-0">
+              <section className="bg-surface-container border border-outline/10 rounded-sm flex-1 flex flex-col overflow-hidden shadow-sm">
+                <div className="px-4 py-3 bg-surface-container-low border-b border-outline/10">
+                  <h2 className="text-sm font-black uppercase tracking-[0.15em] text-white">
+                    {settingsTab === 'general' ? 'General Settings' : 'AI Engine Configuration'}
+                  </h2>
+                </div>
+                <div className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-surface space-y-6">
+                  {settingsTab === 'general' && (
+                    <div className="max-w-2xl space-y-6">
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between p-4 bg-surface-container-high border border-outline/10 rounded-sm">
+                          <div className="space-y-1">
+                            <h4 className="text-xs font-bold uppercase tracking-widest text-white">Verbose Logging</h4>
+                            <p className="text-[10px] text-on-surface-variant">Show all internal process logs in the timeline.</p>
+                          </div>
+                          <button 
+                            onClick={() => setIsVerbose(!isVerbose)}
+                            className={cn(
+                              "w-10 h-5 rounded-full relative transition-colors border",
+                              isVerbose ? "bg-emerald-500/20 border-emerald-500/40" : "bg-surface-container border-outline/20"
+                            )}
+                          >
+                            <div className={cn(
+                              "absolute top-0.5 w-3.5 h-3.5 rounded-sm transition-all",
+                              isVerbose ? "left-5.5 bg-emerald-400" : "left-0.5 bg-on-surface-variant"
+                            )} />
+                          </button>
+                        </div>
+
+                        <div className="flex items-center justify-between p-4 bg-surface-container-high border border-outline/10 rounded-sm">
+                          <div className="space-y-1">
+                            <h4 className="text-xs font-bold uppercase tracking-widest text-white">Global Lightning Sync</h4>
+                            <p className="text-[10px] text-on-surface-variant">Use your Curator lightning address for all managed bots.</p>
+                          </div>
+                          <button 
+                            onClick={() => setGlobalUseCuratorLightning(!globalUseCuratorLightning)}
+                            className={cn(
+                              "w-10 h-5 rounded-full relative transition-colors border",
+                              globalUseCuratorLightning ? "bg-emerald-500/20 border-emerald-500/40" : "bg-surface-container border-outline/20"
+                            )}
+                          >
+                            <div className={cn(
+                              "absolute top-0.5 w-3.5 h-3.5 rounded-sm transition-all",
+                              globalUseCuratorLightning ? "left-5.5 bg-emerald-400" : "left-0.5 bg-on-surface-variant"
+                            )} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {settingsTab === 'ai' && (
+                    <div className="max-w-2xl space-y-8">
+                       <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-sm flex gap-3">
+                        <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
+                        <div className="space-y-1">
+                          <h4 className="text-xs font-bold text-amber-500 uppercase tracking-widest">AI Safety Notice</h4>
+                          <p className="text-[10px] text-amber-500/80 leading-relaxed">
+                            WebLLM models run locally in your browser cache. Initial download may exceed 2GB. 
+                            Ensure you have adequate GPU memory (VRAM) for the selected model.
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-4">
+                        <h4 className="text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">Active AI Engine</h4>
+                        <div className="grid grid-cols-1 gap-3">
+                          {SUPPORTED_MODELS.map((model) => {
+                            const isSelected = settings.modelId === model.id;
+                            const isReady = isSelected && aiStatus === 'ready';
+                            const isLoading = isSelected && aiStatus === 'loading';
+
+                            return (
+                              <div
+                                key={model.id}
+                                className={cn(
+                                  "p-4 rounded-sm border transition-all flex flex-col gap-3 shadow-sm",
+                                  isSelected
+                                    ? "bg-emerald-500/[0.03] border-emerald-500/30"
+                                    : "bg-surface-container-high border-outline/10"
+                                )}
+                              >
+                                <div className="flex justify-between items-start gap-4">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className={cn(
+                                        "text-sm font-black uppercase tracking-tight",
+                                        isSelected ? "text-emerald-500" : "text-on-surface"
+                                      )}>
+                                        {model.name}
+                                      </span>
+                                      <span className="text-xs font-mono font-bold text-on-surface-variant/60 bg-surface-container px-1.5 rounded-none border border-outline/5 leading-none">{model.size}</span>
+                                    </div>
+                                    <p className="text-xs text-on-surface-variant leading-snug italic">{model.description}</p>
+                                  </div>
+                                  
+                                  <div className="shrink-0">
+                                    {isReady ? (
+                                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-sm">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
+                                        <span className="text-xs font-black uppercase tracking-widest text-emerald-500">Active</span>
+                                      </div>
+                                    ) : isLoading ? (
+                                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-surface-container border border-outline/10 rounded-sm">
+                                        <RefreshCw className="w-3 h-3 animate-spin text-emerald-500" />
+                                        <span className="text-xs font-black uppercase tracking-widest text-on-surface-variant">{Math.round(aiProgress)}%</span>
+                                      </div>
+                                    ) : (
+                                      <button 
+                                        onClick={() => {
+                                          setSettings(s => ({ ...s, modelId: model.id, useAI: true }));
+                                          setAiStatus('loading');
+                                        }}
+                                        className="px-3 py-1.5 bg-surface-container border border-outline/10 text-on-surface-variant hover:text-on-surface rounded-sm text-xs font-black uppercase tracking-widest transition-all shadow-sm"
+                                      >
+                                        Load Model
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {isLoading && (
+                                  <div className="space-y-1.5 mt-1">
+                                    <div className="flex justify-between text-[10px] uppercase font-black tracking-widest text-on-surface-variant opacity-40 px-0.5">
+                                      <span className="truncate max-w-[200px]">{currentLoadingFile ? `Downloading ${currentLoadingFile}...` : 'Initializing WebLLM Engine...'}</span>
+                                    </div>
+                                    <div className="h-1 bg-surface-container rounded-none overflow-hidden border border-outline/5">
+                                      <div 
+                                        className="h-full bg-emerald-500 transition-all duration-300 shadow-[0_0_5px_rgba(16,185,129,0.3)]" 
+                                        style={{ width: `${aiProgress}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {settingsTab === 'advanced' && (
+                    <div className="max-w-2xl space-y-8">
+                      <div className="p-4 bg-red-500/5 border border-red-500/20 rounded-sm flex gap-4">
+                        <ShieldAlert className="w-6 h-6 text-red-500 shrink-0" />
+                        <div className="space-y-1">
+                          <h4 className="text-xs font-bold text-red-500 uppercase tracking-widest">Danger Zone</h4>
+                          <p className="text-[10px] text-red-400/80 leading-relaxed uppercase font-bold tracking-tight">
+                            The following actions are destructive and cannot be undone. 
+                            Ensure you have backed up any critical keys or personas before proceeding.
+                          </p>
+                        </div>
+                      </div>
+
+                      <section className="space-y-4">
+                        <div className="flex items-center justify-between p-4 bg-surface-container-high border border-outline/10 rounded-sm group hover:border-red-500/20 transition-colors">
+                          <div className="space-y-1">
+                            <h4 className="text-xs font-bold uppercase tracking-widest text-white">Application Reset</h4>
+                            <p className="text-[10px] text-on-surface-variant">Clear all local storage, identities, and settings.</p>
+                          </div>
+                          <button 
+                            onClick={() => {
+                              if (confirm('Are you ABSOLUTELY sure? This will delete all local bots and reset the app.')) {
+                                if (confirm('FINAL WARNING: This is IRREVERSIBLE. Proceed with Fresh Start?')) {
+                                  handleFreshStart();
+                                }
+                              }
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-400 border border-red-500/20 rounded-sm text-[10px] font-black uppercase tracking-[0.15em] hover:bg-red-500 hover:text-white transition-all shadow-md active:scale-95"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Fresh Start
+                          </button>
+                        </div>
+                      </section>
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+          </>
+        )}
+      </main>
+
+      {/* Add New Identity Selection Dialog */}
 
       {/* Add New Identity Selection Dialog */}
       <AnimatePresence>
@@ -3712,223 +3903,6 @@ export default function App() {
                 </button>
               </div>
             </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {showSettingsDialog && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.99 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.99 }}
-              className="bg-surface border border-outline/10 rounded-sm w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
-            >
-              <div className="p-3 border-b border-outline/10 flex items-center justify-between bg-surface-container-low">
-                <h3 className="text-sm font-black text-white uppercase tracking-tight ml-1">Bot Configuration</h3>
-                <button onClick={() => setShowSettingsDialog(false)} className="p-1 hover:bg-surface-container-high rounded-sm text-on-surface-variant hover:text-white transition-colors">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="flex border-b border-outline/10 bg-surface-container-low">
-                <button
-                  onClick={() => setSettingsTab('general')}
-                  className={cn(
-                    "flex-1 py-2 text-xs font-black uppercase tracking-widest transition-all border-b-2",
-                    settingsTab === 'general' ? "text-emerald-500 border-emerald-500 bg-emerald-500/5" : "text-on-surface-variant border-transparent hover:text-on-surface hover:bg-surface-container-high"
-                  )}
-                >
-                  General
-                </button>
-                <button
-                  onClick={() => setSettingsTab('ai')}
-                  className={cn(
-                    "flex-1 py-2 text-xs font-black uppercase tracking-widest transition-all border-b-2",
-                    settingsTab === 'ai' ? "text-emerald-500 border-emerald-500 bg-emerald-500/5" : "text-on-surface-variant border-transparent hover:text-on-surface hover:bg-surface-container-high"
-                  )}
-                >
-                  AI Models
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4 space-y-5 custom-scrollbar bg-surface">
-                {settingsTab === 'general' ? (
-                  <>
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-on-surface-variant ml-1">
-                        <Clock className="w-3.5 h-3.5" />
-                        <h4 className="text-xs font-black uppercase tracking-widest">Reply Delay (Seconds)</h4>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-xs font-bold uppercase tracking-tighter text-on-surface-variant ml-1">Minimum</label>
-                          <input
-                            type="number"
-                            value={settings.minDelay}
-                            onChange={(e) => setSettings(s => ({ ...s, minDelay: parseInt(e.target.value) || 0 }))}
-                            className="w-full bg-surface-container border border-outline/20 rounded-sm px-3 py-1.5 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors shadow-inner"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-bold uppercase tracking-tighter text-on-surface-variant ml-1">Maximum</label>
-                          <input
-                            type="number"
-                            value={settings.maxDelay}
-                            onChange={(e) => setSettings(s => ({ ...s, maxDelay: parseInt(e.target.value) || 0 }))}
-                            className="w-full bg-surface-container border border-outline/20 rounded-sm px-3 py-1.5 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors shadow-inner"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-on-surface-variant ml-1">
-                        <Zap className="w-3.5 h-3.5 text-amber-500" />
-                        <h4 className="text-xs font-black uppercase tracking-widest">Global Payments</h4>
-                      </div>
-                      <div className="space-y-2">
-                        <label className={cn(
-                          "flex items-center justify-between p-3 bg-surface-container-low border border-outline/10 rounded-sm transition-colors shadow-sm",
-                          (!curatorProfile?.lud16) ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:bg-surface-container"
-                        )}>
-                          <div className="space-y-0.5">
-                            <div className="text-[13px] font-bold text-on-surface uppercase tracking-wider">Curator Split</div>
-                            <div className="text-xs text-on-surface-variant">
-                              {!userPubkey ? "Sign in to enable lightning sync." :
-                               curatorProfile === null ? "Fetching profile..." :
-                               !curatorProfile?.lud16 ? "No lightning address found." :
-                               "Direct splits to active curator."}
-                            </div>
-                          </div>
-                          <div className={cn(
-                            "w-8 h-4 rounded-sm transition-all relative border border-outline/20",
-                            globalUseCuratorLightning ? "bg-emerald-500/40" : "bg-surface-container-high"
-                          )}>
-                            <input
-                              type="checkbox"
-                              checked={globalUseCuratorLightning}
-                              onChange={(e) => setGlobalUseCuratorLightning(e.target.checked)}
-                              disabled={!curatorProfile?.lud16}
-                              className="sr-only"
-                            />
-                            <div className={cn(
-                              "absolute top-0.5 w-2.5 h-2.5 rounded-none transition-all border border-outline/30",
-                              globalUseCuratorLightning ? "left-4.5 bg-emerald-400" : "left-0.5 bg-on-surface-variant"
-                            )} />
-                          </div>
-                        </label>
-                      </div>
-                    </div>
-
-                    <div className="pt-3 border-t border-outline/10 space-y-2">
-                      <div className="flex items-center gap-2 text-red-500/80 ml-1">
-                        <AlertCircle className="w-3.5 h-3.5" />
-                        <h4 className="text-xs font-black uppercase tracking-widest">Danger Zone</h4>
-                      </div>
-                      <button
-                        onClick={handleFreshStart}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-500/5 text-red-500 border border-red-500/20 rounded-sm font-bold text-xs hover:bg-red-500 hover:text-white transition-all uppercase tracking-widest shadow-sm"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        Fresh Start
-                      </button>
-                      <p className="text-xs text-on-surface-variant/40 font-bold text-center uppercase tracking-tighter">Clears all local data and resets the app.</p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-on-surface-variant ml-1">
-                        <Brain className="w-3.5 h-3.5" />
-                        <h4 className="text-xs font-black uppercase tracking-widest">AI Model Library</h4>
-                      </div>
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-1 gap-2">
-                          {SUPPORTED_MODELS.map((model) => {
-                            const isSelected = settings.modelId === model.id;
-                            const isReady = isSelected && aiStatus === 'ready';
-                            const isLoading = isSelected && aiStatus === 'loading';
-
-                            return (
-                              <div
-                                key={model.id}
-                                className={cn(
-                                  "p-3 rounded-sm border transition-all flex flex-col gap-2 shadow-sm",
-                                  isSelected
-                                    ? "bg-emerald-500/[0.03] border-emerald-500/30"
-                                    : "bg-surface-container border-outline/10"
-                                )}
-                              >
-                                <div className="flex justify-between items-start gap-4">
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-2 mb-0.5">
-                                      <span className={cn(
-                                        "text-sm font-black uppercase tracking-tight",
-                                        isSelected ? "text-emerald-500" : "text-on-surface"
-                                      )}>
-                                        {model.name}
-                                      </span>
-                                      <span className="text-xs font-mono font-bold text-on-surface-variant/60 bg-surface-container-high px-1.5 rounded-none border border-outline/5 leading-none">{model.size}</span>
-                                    </div>
-                                    <p className="text-xs text-on-surface-variant leading-snug italic">{model.description}</p>
-                                  </div>
-                                  
-                                  <div className="shrink-0">
-                                    {isReady ? (
-                                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-sm">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
-                                        <span className="text-xs font-black uppercase tracking-widest text-emerald-500">Active</span>
-                                      </div>
-                                    ) : isLoading ? (
-                                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-surface-container-high border border-outline/10 rounded-sm">
-                                        <RefreshCw className="w-3 h-3 animate-spin text-emerald-500" />
-                                        <span className="text-xs font-black uppercase tracking-widest text-on-surface-variant">{Math.round(aiProgress)}%</span>
-                                      </div>
-                                    ) : (
-                                      <button 
-                                        onClick={() => {
-                                          setSettings(s => ({ ...s, modelId: model.id, useAI: true }));
-                                          setAiStatus('loading');
-                                        }}
-                                        className="px-2.5 py-1 bg-surface-container-high hover:bg-surface-container border border-outline/10 text-on-surface-variant hover:text-on-surface rounded-sm text-xs font-black uppercase tracking-widest transition-all shadow-sm"
-                                      >
-                                        Load Model
-                                      </button>
-                                    )}                                  </div>
-                                </div>
-
-                                {isLoading && (
-                                  <div className="space-y-1">
-                                    <div className="flex justify-between text-xs uppercase font-black tracking-widest text-on-surface-variant opacity-40 px-0.5">
-                                      <span className="truncate max-w-[180px]">{currentLoadingFile ? `Fetching ${currentLoadingFile}...` : 'Initializing...'}</span>
-                                    </div>
-                                    <div className="h-1 bg-surface-container-high rounded-none overflow-hidden border border-outline/5">
-                                      <div 
-                                        className="h-full bg-emerald-500 transition-all duration-300 shadow-[0_0_5px_rgba(16,185,129,0.3)]" 
-                                        style={{ width: `${aiProgress}%` }}
-                                      />
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-              <div className="p-3 bg-surface-container-low border-t border-outline/10 flex justify-center">
-                <button 
-                  onClick={() => setShowSettingsDialog(false)}
-                  className="text-xs font-black uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors"
-                >
-                  Return
-                </button>
-              </div>            </motion.div>
           </div>
         )}
       </AnimatePresence>
