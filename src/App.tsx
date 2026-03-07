@@ -183,7 +183,10 @@ export default function App() {
   const aiWorkerRef = useRef<Worker | null>(null);
   const aiResolveRef = useRef<((value: string) => void) | null>(null);
   const conversationHistoryRef = useRef<Map<string, { role: string; content: string }[]>>(new Map());
-  const processedEventsRef = useRef<Map<string, Set<string>>>(new Map());
+  const processedEventsRef = useRef<Set<string>>(new Set());
+
+  const lastModelIdRef = useRef(settings.modelId);
+  const lastUseAIRef = useRef(settings.useAI);
   
   const [playgroundMessages, setPlaygroundMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
   const [isPlaygroundThinking, setIsPlaygroundThinking] = useState(false);
@@ -233,6 +236,8 @@ export default function App() {
   }, []);
 
   // AI Brain Management
+  const isInitializingRef = useRef(false);
+
   useEffect(() => {
     // 1. If AI is disabled, ensure worker is dead and status is idle
     if (!settings.useAI) {
@@ -242,6 +247,7 @@ export default function App() {
         aiWorkerRef.current.terminate();
         aiWorkerRef.current = null;
       }
+      isInitializingRef.current = false;
       return;
     }
 
@@ -252,12 +258,23 @@ export default function App() {
     }
 
     // 3. Worker Execution (Only in 'loading' state)
-    if (aiStatus !== 'loading') return;
+    if (aiStatus !== 'loading' || isInitializingRef.current) return;
 
-    // Safety: terminate any ghost worker
-    if (aiWorkerRef.current) {
+    // Safety: check if settings changed
+    const isModelChange = lastModelIdRef.current !== settings.modelId;
+    const isUseAIChange = lastUseAIRef.current !== settings.useAI;
+
+    if (aiWorkerRef.current && (isModelChange || isUseAIChange)) {
       aiWorkerRef.current.terminate();
+      aiWorkerRef.current = null;
+    } else if (aiWorkerRef.current) {
+      // Already running and settings are same, don't restart
+      return;
     }
+
+    isInitializingRef.current = true;
+    lastModelIdRef.current = settings.modelId;
+    lastUseAIRef.current = settings.useAI;
 
     const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
 
@@ -279,6 +296,7 @@ export default function App() {
         setAiStatus('ready');
         setAiProgress(100);
         setCurrentLoadingFile('');
+        isInitializingRef.current = false;
         addLog(`AI Brain (${settings.modelId.split('/').pop()}) is ready!`, 'success');
       } else if (type === 'result') {
         if (aiResolveRef.current) {
@@ -288,6 +306,7 @@ export default function App() {
       } else if (type === 'error') {
         setAiStatus('error');
         setAiErrorMessage(data);
+        isInitializingRef.current = false;
         addLog(`AI Brain Error: ${data}`, 'error');
       } else if (type === 'status') {
         if (data.includes('Initializing')) {
@@ -299,8 +318,6 @@ export default function App() {
 
     worker.postMessage({ type: 'init', data: { model_id: settings.modelId } });
     aiWorkerRef.current = worker;
-
-    // If model changes while loading, this effect will re-run and terminate the current worker
   }, [aiStatus, settings.useAI, settings.modelId, addLog]);
 
   // --- Bot Logic Helpers ---
@@ -1967,14 +1984,9 @@ export default function App() {
     const eventHandler = (event: any) => {
       if (event.pubkey === pk) return;
       
-      let botProcessedSet = processedEventsRef.current.get(identity.id);
-      if (!botProcessedSet) {
-        botProcessedSet = new Set<string>();
-        processedEventsRef.current.set(identity.id, botProcessedSet);
-      }
-
-      if (botProcessedSet.has(event.id)) return;
-      botProcessedSet.add(event.id);
+      const eventKey = `${identity.id}:${event.id}`;
+      if (processedEventsRef.current.has(eventKey)) return;
+      processedEventsRef.current.add(eventKey);
 
       // Received stats
       const mentionsSelf = event.tags.some((t: any) => t[0] === 'p' && t[1] === pk);
@@ -2103,33 +2115,39 @@ export default function App() {
     const interval = setInterval(() => {
       const now = Date.now();
 
-      runningIdentityIds.forEach(id => {
-        const identity = savedIdentities.find(i => i.id === id);
-        if (!identity || !identity.settings.proactive?.enabled) return;
+      setSavedIdentities(prev => {
+        let hasChanges = false;
+        const next = prev.map(identity => {
+          if (!runningIdentityIds.has(identity.id) || !identity.settings.proactive?.enabled) return identity;
 
-        const settings = identity.settings.proactive;
+          const settings = identity.settings.proactive;
+          const updates: Partial<Identity> = {};
 
-        // 1. Initialize next post time if missing (starts from createdAt or lastPost)
-        if (settings.interval > 0 && !identity.nextProactiveTimestamp) {
-          const lastPost = identity.lastProactivePost || identity.createdAt;
-          // Initial fuzzy start to prevent all bots posting together on launch
-          const initialJitter = (settings.interval * 0.5) * Math.random();
-          let firstNext = lastPost + ((settings.interval + initialJitter) * 60 * 1000);
+          // 1. Initialize next post time if missing (starts from createdAt or lastPost)
+          if (settings.interval > 0 && !identity.nextProactiveTimestamp) {
+            const lastPost = identity.lastProactivePost || identity.createdAt;
+            // Initial fuzzy start to prevent all bots posting together on launch
+            const initialJitter = (settings.interval * 0.5) * Math.random();
+            let firstNext = lastPost + ((settings.interval + initialJitter) * 60 * 1000);
 
-          // If the calculated time is in the past, stagger the start within 1-10 minutes
-          if (firstNext < now) {
-            firstNext = now + ((1 + Math.random() * 9) * 60 * 1000);
+            // If the calculated time is in the past, stagger the start within 1-10 minutes
+            if (firstNext < now) {
+              firstNext = now + ((1 + Math.random() * 9) * 60 * 1000);
+            }
+
+            updates.nextProactiveTimestamp = firstNext;
+            hasChanges = true;
+          }
+          // 2. Interval Check against fuzzy timestamp
+          else if (settings.interval > 0 && identity.nextProactiveTimestamp && now >= identity.nextProactiveTimestamp) {
+            scheduleProactivePost(identity.id);
+            // scheduleProactivePost will update its own lastProactivePost/nextProactiveTimestamp
           }
 
-          setSavedIdentities(prev => prev.map(i =>
-            i.id === id ? { ...i, nextProactiveTimestamp: firstNext } : i
-          ));
-          return;
-        }
-        // 2. Interval Check against fuzzy timestamp
-        if (settings.interval > 0 && identity.nextProactiveTimestamp && now >= identity.nextProactiveTimestamp) {
-          scheduleProactivePost(id);
-        }
+          return hasChanges && Object.keys(updates).length > 0 ? { ...identity, ...updates } : identity;
+        });
+
+        return hasChanges ? next : prev;
       });
     }, 60000); // Check every minute
 
