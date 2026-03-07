@@ -183,7 +183,7 @@ export default function App() {
   const aiWorkerRef = useRef<Worker | null>(null);
   const aiResolveRef = useRef<((value: string) => void) | null>(null);
   const conversationHistoryRef = useRef<Map<string, { role: string; content: string }[]>>(new Map());
-  const processedEventsRef = useRef(new Set<string>());
+  const processedEventsRef = useRef<Map<string, Set<string>>>(new Map());
   
   const [playgroundMessages, setPlaygroundMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
   const [isPlaygroundThinking, setIsPlaygroundThinking] = useState(false);
@@ -1965,8 +1965,15 @@ export default function App() {
     // 4. Monitoring loop
     const eventHandler = (event: any) => {
       if (event.pubkey === pk) return;
-      if (processedEventsRef.current.has(event.id)) return;
-      processedEventsRef.current.add(event.id);
+      
+      let botProcessedSet = processedEventsRef.current.get(identity.id);
+      if (!botProcessedSet) {
+        botProcessedSet = new Set<string>();
+        processedEventsRef.current.set(identity.id, botProcessedSet);
+      }
+
+      if (botProcessedSet.has(event.id)) return;
+      botProcessedSet.add(event.id);
 
       // Received stats
       const mentionsSelf = event.tags.some((t: any) => t[0] === 'p' && t[1] === pk);
@@ -2005,7 +2012,8 @@ export default function App() {
           }
         }
       } else if (event.pubkey === targetHex) {
-        addLog(`[${identity.name}] New note from target: ${event.id.substring(0, 8)}...`, 'success', event.pubkey, identity.name);
+        const targetNpub = nip19.npubEncode(event.pubkey);
+        addLog(`[${identity.name}] New note from ${targetNpub}`, 'success', event.pubkey, identity.name);
         scheduleReply(event, targetRelays);
         scheduleReactions(event, targetRelays);
         if (identity.settings.repostNotes) scheduleRepost(event, targetRelays);

@@ -90,16 +90,16 @@ export const LogTimeline = React.memo(({
 
 const LogItem = React.memo(({ log, profile, communityProfiles }: { log: LogEntry, profile?: ProfileInfo, communityProfiles: Record<string, ProfileInfo> }) => {
   const renderMessage = (message: string) => {
-    // Regex for hex pubkeys (64 chars) and npubs (starts with npub1)
-    const nostrRegex = /\b(npub1[a-z0-9]{58}|[a-f0-9]{64})\b/g;
+    // Improved Regex for hex pubkeys (64 chars) and npubs (starts with npub1)
+    const nostrRegex = /(npub1[a-z0-9]{58}|[a-f0-9]{64})/gi;
     const parts = message.split(nostrRegex);
     
     if (parts.length === 1) return message;
 
     return parts.map((part, i) => {
       if (part.match(nostrRegex)) {
-        let pk = part;
-        let npub = part;
+        let pk = part.toLowerCase();
+        let npub = part.toLowerCase();
         
         try {
           if (part.startsWith('npub1')) {
@@ -108,20 +108,26 @@ const LogItem = React.memo(({ log, profile, communityProfiles }: { log: LogEntry
           } else {
             npub = nip19.npubEncode(part);
           }
-        } catch (e) {}
+        } catch (e) {
+          // If it matched the regex but decoding failed (e.g. invalid checksum), just return text
+          return part;
+        }
 
         const p = communityProfiles[pk];
         
         return (
-          <span key={i} className="inline-flex items-center gap-1 px-1 bg-surface-container border border-outline/10 rounded-sm mx-0.5 align-middle">
+          <span key={i} className="inline-flex items-center gap-1.5 px-1.5 py-0.5 bg-surface-container border border-outline/10 rounded-sm mx-0.5 align-middle shadow-sm">
             <img 
               src={p?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${pk}`} 
               alt="" 
-              className="w-3 h-3 rounded-none object-cover"
+              className="w-3.5 h-3.5 rounded-none object-cover"
               crossOrigin="anonymous"
             />
-            <span className="text-[11px] font-bold text-emerald-500/80 truncate max-w-[80px]">
-              {p?.name || npub.substring(0, 10) + '...'}
+            <span className={cn(
+              "text-[11px] font-black uppercase tracking-tight truncate max-w-[120px]",
+              p?.name ? "text-emerald-400" : "text-on-surface-variant/60"
+            )}>
+              {p?.name ? `@${p.name}` : npub.substring(0, 10) + '...'}
             </span>
           </span>
         );
