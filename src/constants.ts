@@ -98,7 +98,6 @@ export const DEFAULT_SETTINGS: BotSettings = {
   maxDelay: 30,
   targetNpub: '',
   targetName: '',
-  messages: [],
   profile: {
     name: 'Echo Bot',
     about: 'I am a simple echo bot. Friendly, concise, and helpful!',

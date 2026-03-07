@@ -68,7 +68,6 @@ export interface BotSettings {
   maxDelay: number; // seconds
   targetNpub: string;
   targetName: string;
-  messages: string[];
   profile: ProfileInfo;
   reactToNotes: boolean;
   reactionEmojis: string;
