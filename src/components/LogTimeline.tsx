@@ -11,6 +11,7 @@ interface LogTimelineProps {
   setIsVerbose: (v: boolean) => void;
   onClear: () => void;
   communityProfiles: Record<string, ProfileInfo>;
+  hideVerboseToggle?: boolean;
 }
 
 export const LogTimeline = React.memo(({ 
@@ -18,7 +19,8 @@ export const LogTimeline = React.memo(({
   isVerbose, 
   setIsVerbose, 
   onClear, 
-  communityProfiles 
+  communityProfiles,
+  hideVerboseToggle = false
 }: LogTimelineProps) => {
   const filteredLogs = logs.filter(log => isVerbose || log.type !== 'info');
 
@@ -31,25 +33,27 @@ export const LogTimeline = React.memo(({
           <h2 className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">Live Activity Feed</h2>
         </div>
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 cursor-pointer group">
-            <div className="relative">
-              <input 
-                type="checkbox" 
-                className="sr-only" 
-                checked={isVerbose}
-                onChange={(e) => setIsVerbose(e.target.checked)}
-              />
-              <div className={cn(
-                "w-7 h-3.5 rounded-full transition-colors border border-outline/20",
-                isVerbose ? "bg-emerald-500/30" : "bg-surface-container-high"
-              )}></div>
-              <div className={cn(
-                "absolute -left-0.5 -top-0.5 w-4.5 h-4.5 rounded-sm transition-transform shadow-md border border-outline/30",
-                isVerbose ? "translate-x-3 bg-emerald-400" : "translate-x-0 bg-on-surface-variant"
-              )}></div>
-            </div>
-            <span className="text-xs text-on-surface-variant uppercase tracking-wider font-bold group-hover:text-on-surface transition-colors">Verbose</span>
-          </label>
+          {!hideVerboseToggle && (
+            <label className="flex items-center gap-2 cursor-pointer group">
+              <div className="relative">
+                <input 
+                  type="checkbox" 
+                  className="sr-only" 
+                  checked={isVerbose}
+                  onChange={(e) => setIsVerbose(e.target.checked)}
+                />
+                <div className={cn(
+                  "w-7 h-3.5 rounded-full transition-colors border border-outline/20",
+                  isVerbose ? "bg-emerald-500/30" : "bg-surface-container-high"
+                )}></div>
+                <div className={cn(
+                  "absolute -left-0.5 -top-0.5 w-4.5 h-4.5 rounded-sm transition-transform shadow-md border border-outline/30",
+                  isVerbose ? "translate-x-3 bg-emerald-400" : "translate-x-0 bg-on-surface-variant"
+                )}></div>
+              </div>
+              <span className="text-xs text-on-surface-variant uppercase tracking-wider font-bold group-hover:text-on-surface transition-colors">Verbose</span>
+            </label>
+          )}
           <button 
             onClick={onClear}
             className="p-1 hover:bg-surface-container-high rounded-sm text-on-surface-variant hover:text-red-400 transition-all border border-transparent hover:border-outline/10"
@@ -154,7 +158,7 @@ const LogItem = React.memo(({ log, profile, communityProfiles }: { log: LogEntry
         )}
       </div>
 
-      <div className="flex-1 min-w-0 space-y-0.5">
+      <div className="flex-1 min-w-0 space-y-1">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs font-mono text-on-surface-variant/80 shrink-0">
@@ -188,6 +192,27 @@ const LogItem = React.memo(({ log, profile, communityProfiles }: { log: LogEntry
             {log.type === 'error' && <AlertCircle className="w-3 h-3 text-red-500/60" />}
           </div>
         </div>
+
+        {log.contextContent && (
+          <div className="px-3 py-2 bg-surface border-l-2 border-outline/20 mb-1.5 opacity-60">
+            {log.contextPubkey && (
+              <div className="flex items-center gap-1.5 mb-1 opacity-80">
+                <img 
+                  src={communityProfiles[log.contextPubkey]?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${log.contextPubkey}`} 
+                  alt="" 
+                  className="w-3.5 h-3.5 rounded-none object-cover grayscale"
+                  crossOrigin="anonymous"
+                />
+                <span className="text-[10px] font-black uppercase tracking-tighter text-on-surface-variant">
+                  {communityProfiles[log.contextPubkey]?.name || nip19.npubEncode(log.contextPubkey).substring(0, 10) + '...'}
+                </span>
+              </div>
+            )}
+            <p className="text-xs leading-relaxed italic text-on-surface-variant line-clamp-3">
+              {renderMessage(log.contextContent)}
+            </p>
+          </div>
+        )}
 
         <div className={cn(
           "text-sm leading-snug break-words font-medium",

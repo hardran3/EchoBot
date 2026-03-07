@@ -16,6 +16,8 @@ export interface LogEntry {
   botName?: string;
   eventId?: string;
   relays?: string[];
+  contextContent?: string;
+  contextPubkey?: string;
 }
 
 export interface ProfileInfo {

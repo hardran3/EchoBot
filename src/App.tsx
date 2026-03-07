@@ -160,7 +160,7 @@ export default function App() {
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [showManager, setShowManager] = useState(false);
   const [managerTab, setManagerTab] = useState<'local' | 'community'>('local');
-  const [settingsTab, setSettingsTab] = useState<'general' | 'ai' | 'advanced'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'ai' | 'advanced' | 'logs'>('general');
   const [globalUseCuratorLightning, setGlobalUseCuratorLightning] = useState(() => {
     return localStorage.getItem(STORAGE_KEY_GLOBAL_LIGHTNING_SYNC) === 'true';
   });
@@ -1836,7 +1836,7 @@ export default function App() {
             const successCount = results.filter(r => r.status === 'fulfilled').length;
 
             if (successCount > 0) {
-              addLog(`[${identity.name}] Replied: "${message.substring(0, 30)}..."`, 'success');
+              addLog(`[${identity.name}] Replied: "${message}"`, 'success', undefined, identity.name, replyEvent.id, allRelays, event.content, event.pubkey);
               addStatToBatch(identity.id, { repliesSent: 1 });
             }
           } catch (e) {
@@ -1881,7 +1881,7 @@ export default function App() {
             const pubs = poolRef.current.publish(allRelays, reactEvent);
             const results = await Promise.allSettled(pubs);
             if (results.some(r => r.status === 'fulfilled')) {
-              addLog(`[${identity.name}] Reacted with ${emoji}`, 'success');
+              addLog(`[${identity.name}] Reacted with ${emoji}`, 'success', undefined, identity.name);
               addStatToBatch(identity.id, { reactionsSent: 1 });
             }
           } catch (e) {}
@@ -1920,7 +1920,7 @@ export default function App() {
             const pubs = poolRef.current.publish(allRelays, repostEvent);
             const results = await Promise.allSettled(pubs);
             if (results.some(r => r.status === 'fulfilled')) {
-              addLog(`[${identity.name}] Reposted note.`, 'success');
+              addLog(`[${identity.name}] Reposted note.`, 'success', undefined, identity.name);
               addStatToBatch(identity.id, { repostsSent: 1 });
             }
           } catch (e) {}
@@ -1956,7 +1956,7 @@ export default function App() {
             const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
             const pubs = poolRef.current.publish(allRelays, event);
             await Promise.allSettled(pubs);
-            addLog(`[${identity.name}] Followed back user.`, 'success');
+            addLog(`[${identity.name}] Followed back user.`, 'success', undefined, identity.name);
           } catch (e) {}
         }
       });
@@ -1975,12 +1975,12 @@ export default function App() {
       const mentionsSelf = event.tags.some((t: any) => t[0] === 'p' && t[1] === pk);
       if (mentionsSelf) {
         if (event.kind === 1) {
-          addLog(`[${identity.name}] New mention from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey);
+          addLog(`[${identity.name}] New mention from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey, identity.name);
           addStatToBatch(identity.id, { repliesReceived: 1 });
           if (identity.settings.autoFollowBack) scheduleFollow(event.pubkey, targetRelays);
         }
         if (event.kind === 7) {
-          addLog(`[${identity.name}] New reaction from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey);
+          addLog(`[${identity.name}] New reaction from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey, identity.name);
           addStatToBatch(identity.id, { reactionsReceived: 1 });
           if (identity.settings.autoFollowBack) scheduleFollow(event.pubkey, targetRelays);
         }
@@ -2008,7 +2008,7 @@ export default function App() {
           }
         }
       } else if (event.pubkey === targetHex) {
-        addLog(`[${identity.name}] New note from target: ${event.id.substring(0, 8)}...`, 'success', event.pubkey);
+        addLog(`[${identity.name}] New note from target: ${event.id.substring(0, 8)}...`, 'success', event.pubkey, identity.name);
         scheduleReply(event, targetRelays);
         scheduleReactions(event, targetRelays);
         if (identity.settings.repostNotes) scheduleRepost(event, targetRelays);
@@ -2041,7 +2041,7 @@ export default function App() {
     const newSubs = [subMentions];
     if (subTarget) newSubs.push(subTarget);
     subscriptionsRef.current.set(identity.id, [...currentSubs, ...newSubs]);
-    addLog(`[${identity.name}] Real-time monitoring active.`, 'info');
+    addLog(`[${identity.name}] Real-time monitoring active.`, 'info', undefined, identity.name);
   };
 
   const scheduleProactivePost = async (id: string) => {
@@ -2072,7 +2072,7 @@ export default function App() {
           const pubs = poolRef.current.publish(relays, postEvent);
           await Promise.allSettled(pubs);
 
-          addLog(`[${identity.name}] Posted original note: "${content.substring(0, 30)}..."`, 'success');
+          addLog(`[${identity.name}] Posted original note: "${content}"`, 'success', undefined, identity.name, postEvent.id, relays);
           addStatToBatch(identity.id, { proactiveNotesSent: 1 });
           
           // Calculate next fuzzy post time (interval ± 15% jitter)
@@ -2530,6 +2530,7 @@ export default function App() {
                   setIsVerbose={setIsVerbose}
                   onClear={clearLogs}
                   communityProfiles={communityProfiles}
+                  hideVerboseToggle={true}
                 />
               ) : (
                 <div className="flex-1 flex flex-col overflow-hidden">
@@ -3650,6 +3651,18 @@ export default function App() {
                   <ShieldAlert className="w-4 h-4" />
                   Advanced
                 </button>
+                <button 
+                  onClick={() => setSettingsTab('logs')}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-sm transition-all text-xs font-bold uppercase tracking-widest border",
+                    settingsTab === 'logs' 
+                      ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" 
+                      : "bg-surface-container-high text-on-surface-variant border-outline/10 hover:border-outline/20"
+                  )}
+                >
+                  <Terminal className="w-4 h-4" />
+                  System Logs
+                </button>
               </section>
               <div className="hidden lg:block bg-surface-container/20 border border-outline/5 rounded-sm p-4">
                 <div className="flex items-center gap-2 mb-2 text-on-surface-variant opacity-40">
@@ -3667,10 +3680,10 @@ export default function App() {
               <section className="bg-surface-container border border-outline/10 rounded-sm flex-1 flex flex-col overflow-hidden shadow-sm">
                 <div className="px-4 py-3 bg-surface-container-low border-b border-outline/10">
                   <h2 className="text-sm font-black uppercase tracking-[0.15em] text-white">
-                    {settingsTab === 'general' ? 'General Settings' : settingsTab === 'ai' ? 'AI Engine Configuration' : 'Advanced Operations'}
+                    {settingsTab === 'general' ? 'General Settings' : settingsTab === 'ai' ? 'AI Engine Configuration' : settingsTab === 'advanced' ? 'Advanced Operations' : 'System Diagnostic Logs'}
                   </h2>
                 </div>
-                <div className="flex-1 overflow-y-auto p-3 custom-scrollbar bg-surface">
+                <div className="flex-1 overflow-y-auto p-3 custom-scrollbar bg-surface flex flex-col min-h-0">
                   {settingsTab === 'general' && (
                     <div className="max-w-2xl flex flex-col gap-6">
                       <div className="flex flex-col gap-4">
@@ -3840,6 +3853,18 @@ export default function App() {
                           </button>
                         </div>
                       </section>
+                    </div>
+                  )}
+
+                  {settingsTab === 'logs' && (
+                    <div className="flex-1 flex flex-col min-h-0 bg-surface-container-low rounded-sm border border-outline/10">
+                      <LogTimeline
+                        logs={logs}
+                        isVerbose={isVerbose}
+                        setIsVerbose={setIsVerbose}
+                        onClear={clearLogs}
+                        communityProfiles={communityProfiles}
+                      />
                     </div>
                   )}
                 </div>

@@ -91,7 +91,16 @@ export function useAppStore() {
     return saved || 'default-device';
   }, []);
 
-  const addLog = useCallback((message: string, type: LogEntry['type'] = 'info', pubkey?: string) => {
+  const addLog = useCallback((
+    message: string, 
+    type: LogEntry['type'] = 'info', 
+    pubkey?: string, 
+    botName?: string, 
+    eventId?: string, 
+    relays?: string[],
+    contextContent?: string,
+    contextPubkey?: string
+  ) => {
     dispatch({
       type: 'ADD_LOG',
       log: {
@@ -99,7 +108,12 @@ export function useAppStore() {
         timestamp: Date.now(),
         type,
         message,
-        pubkey
+        pubkey,
+        botName,
+        eventId,
+        relays,
+        contextContent,
+        contextPubkey
       }
     });
   }, []);
