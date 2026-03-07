@@ -91,6 +91,7 @@ export interface BotSettings {
 
 export interface BotTask {
   id: string;
+  botId?: string;
   execute: () => Promise<void>;
   description: string;
 }

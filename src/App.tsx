@@ -174,6 +174,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<'dashboard' | 'manager' | 'settings'>('dashboard');
 
   const [targetFollows, setTargetFollows] = useState<string[]>([]);
+  const [queueCounts, setQueueCounts] = useState<Record<string, number>>({});
 
   // AI Brain State
   const [aiStatus, setAiStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -1589,6 +1590,14 @@ export default function App() {
 
       // Remove the task we just executed
       taskQueueRef.current.shift();
+
+      // Update queue counts state
+      if (task.botId) {
+        setQueueCounts(prev => {
+          const count = taskQueueRef.current.filter(t => t.botId === task.botId).length;
+          return { ...prev, [task.botId!]: count };
+        });
+      }
       
       // Optional: extra 1s guaranteed gap
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -1599,6 +1608,15 @@ export default function App() {
 
   const addTaskToQueue = useCallback((task: BotTask) => {
     taskQueueRef.current.push(task);
+
+    // Update queue counts state
+    if (task.botId) {
+      setQueueCounts(prev => ({
+        ...prev,
+        [task.botId!]: (prev[task.botId!] || 0) + 1
+      }));
+    }
+
     if (!isProcessingQueueRef.current) {
       processQueue();
     }
@@ -1795,6 +1813,7 @@ export default function App() {
     const scheduleReply = (event: any, relays: string[]) => {
       addTaskToQueue({
         id: `reply-${event.id}-${Math.random()}`,
+        botId: identity.id,
         description: `[${identity.name}] Reply to ${event.id.substring(0, 8)}`,
         execute: async () => {
           if (!poolRef.current) return;
@@ -1876,6 +1895,7 @@ export default function App() {
 
       addTaskToQueue({
         id: `reaction-${event.id}-${emoji}-${Math.random()}`,
+        botId: identity.id,
         description: `[${identity.name}] Reaction "${emoji}" to ${event.id.substring(0, 8)}`,
         execute: async () => {
           if (!poolRef.current) return;
@@ -1915,6 +1935,7 @@ export default function App() {
 
       addTaskToQueue({
         id: `repost-${event.id}-${Math.random()}`,
+        botId: identity.id,
         description: `[${identity.name}] Repost ${event.id.substring(0, 8)}`,
         execute: async () => {
           if (!poolRef.current) return;
@@ -1946,6 +1967,7 @@ export default function App() {
 
       addTaskToQueue({
         id: `follow-${pubkey}-${Math.random()}`,
+        botId: identity.id,
         description: `[${identity.name}] Follow ${pubkey.substring(0, 8)}`,
         execute: async () => {
           if (!poolRef.current) return;
@@ -2078,6 +2100,7 @@ export default function App() {
 
     addTaskToQueue({
       id: `proactive-post-${id}-${Date.now()}`,
+      botId: id,
       description: `[${identity.name}] AI Note`,
       execute: async () => {
         try {
@@ -2306,7 +2329,14 @@ export default function App() {
                           crossOrigin="anonymous"
                         />
                         {isRunning(identity.id) && (
-                          <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-emerald-500 rounded-full border border-surface animate-pulse" />
+                          <div className={cn(
+                            "absolute -top-1.5 -right-1.5 rounded-full border border-surface shadow-sm flex items-center justify-center min-w-[14px] h-[14px] px-0.5 z-10",
+                            (queueCounts[identity.id] || 0) > 0 ? "bg-emerald-500 animate-none" : "bg-emerald-500 animate-pulse"
+                          )}>
+                            {(queueCounts[identity.id] || 0) > 0 ? (
+                              <span className="text-[9px] font-black text-black leading-none">{queueCounts[identity.id]}</span>
+                            ) : null}
+                          </div>
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
