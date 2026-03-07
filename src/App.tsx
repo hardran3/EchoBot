@@ -344,7 +344,7 @@ export default function App() {
     setIsPlaygroundThinking(true);
 
     try {
-      const aiResult = await generateBotMessage(settings, 'playground', userMsg);
+      const aiResult = await generateBotMessage(settings, 'playground', 'playground', userMsg);
       if (aiResult) {
         setPlaygroundMessages(prev => [...prev, { role: 'assistant', content: aiResult }]);
       }
@@ -421,6 +421,7 @@ export default function App() {
 
   async function generateBotMessage(
     botSettings: BotSettings, 
+    identityId: string,
     targetNpub?: string, 
     content?: string, 
     context?: { pubkey: string; content: string }[],
@@ -435,7 +436,7 @@ export default function App() {
     }
 
     try {
-      const historyKey = targetNpub || 'default';
+      const historyKey = `${identityId}:${targetNpub || 'default'}`;
       const history = conversationHistoryRef.current.get(historyKey) || [];
       const userPersona = botSettings.aiSystemPrompt
         .replace(/{name}/gi, botSettings.profile.name)
@@ -1715,7 +1716,7 @@ export default function App() {
 
     setRunningIdentityIds(prev => new Set(prev).add(identity.id));
     addStatToBatch(identity.id, { repliesSent: 0 }); // Initialize session entry
-    addLog(`Starting bot: ${identity.name}${isProactiveOnly ? ' (Proactive Only)' : ''}`, 'info');
+    addLog(`Starting bot: ${identity.name}${isProactiveOnly ? ' (Proactive Only)' : ''}`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
 
     if (!poolRef.current) {
       poolRef.current = new SimplePool();
@@ -1725,7 +1726,7 @@ export default function App() {
     let targetRelays = identity.settings.relays?.length ? identity.settings.relays : [...PUBLISH_RELAYS];
 
     if (targetHex) {
-      addLog(`Discovering relays for ${identity.name}...`, 'info');
+      addLog(`Discovering relays for ${identity.name}...`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
       try {
         const profileEvent = await poolRef.current.get(SEARCH_RELAYS, {
           kinds: [0],
@@ -1750,7 +1751,7 @@ export default function App() {
               const profileRelays = Object.keys(content.relays);
               if (profileRelays.length > 0) {
                 targetRelays = [...new Set([...profileRelays, ...PUBLISH_RELAYS])];
-                addLog(`Found ${profileRelays.length} relays for ${identity.name} via profile.`, 'info');
+                addLog(`Found ${profileRelays.length} relays for ${identity.name} via profile.`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
               }
             }
           } catch (e) {}
@@ -1768,11 +1769,11 @@ export default function App() {
             .map(t => t[1]);
           if (relays.length > 0) {
             targetRelays = [...new Set([...relays, ...targetRelays])];
-            addLog(`Updated relays for ${identity.name} via NIP-65.`, 'info');
+            addLog(`Updated relays for ${identity.name} via NIP-65.`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
           }
           }
           } catch (e) {
-          addLog(`Profile/Relay discovery failed for ${identity.name}, using defaults.`, 'info');
+          addLog(`Profile/Relay discovery failed for ${identity.name}, using defaults.`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
           }    }
 
     // 2. Helper functions for processing events
@@ -1802,7 +1803,7 @@ export default function App() {
             } catch (e) {}
           }
 
-          const message = await generateBotMessage(identity.settings, identity.settings.targetNpub, event.content, contextEvents);
+          const message = await generateBotMessage(identity.settings, identity.id, identity.settings.targetNpub, event.content, contextEvents);
           if (!message) return;
 
           // Improved NIP-10 tagging
@@ -1833,11 +1834,11 @@ export default function App() {
             const successCount = results.filter(r => r.status === 'fulfilled').length;
 
             if (successCount > 0) {
-              addLog(`[${identity.name}] Replied: "${message}"`, 'success', undefined, identity.name, replyEvent.id, allRelays, event.content, event.pubkey);
+              addLog(`[${identity.name}] Replied: "${message}"`, 'success', undefined, identity.name, replyEvent.id, allRelays, event.content, event.pubkey, identity.id, event.id);
               addStatToBatch(identity.id, { repliesSent: 1 });
             }
           } catch (e) {
-            addLog(`[${identity.name}] Failed to broadcast reply.`, 'error');
+            addLog(`[${identity.name}] Failed to broadcast reply.`, 'error', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id, event.id);
           }
         }
       });
@@ -1878,7 +1879,7 @@ export default function App() {
             const pubs = poolRef.current.publish(allRelays, reactEvent);
             const results = await Promise.allSettled(pubs);
             if (results.some(r => r.status === 'fulfilled')) {
-              addLog(`[${identity.name}] Reacted with ${emoji}`, 'success', undefined, identity.name);
+              addLog(`[${identity.name}] Reacted with ${emoji}`, 'success', undefined, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
               addStatToBatch(identity.id, { reactionsSent: 1 });
             }
           } catch (e) {}
@@ -1917,7 +1918,7 @@ export default function App() {
             const pubs = poolRef.current.publish(allRelays, repostEvent);
             const results = await Promise.allSettled(pubs);
             if (results.some(r => r.status === 'fulfilled')) {
-              addLog(`[${identity.name}] Reposted note.`, 'success', undefined, identity.name);
+              addLog(`[${identity.name}] Reposted note.`, 'success', undefined, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
               addStatToBatch(identity.id, { repostsSent: 1 });
             }
           } catch (e) {}
@@ -1979,12 +1980,12 @@ export default function App() {
       const mentionsSelf = event.tags.some((t: any) => t[0] === 'p' && t[1] === pk);
       if (mentionsSelf) {
         if (event.kind === 1) {
-          addLog(`[${identity.name}] New mention from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey, identity.name);
+          addLog(`[${identity.name}] New mention from ${nip19.npubEncode(event.pubkey)}`, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
           addStatToBatch(identity.id, { repliesReceived: 1 });
           if (identity.settings.autoFollowBack) scheduleFollow(event.pubkey, targetRelays);
         }
         if (event.kind === 7) {
-          addLog(`[${identity.name}] New reaction from ${nip19.npubEncode(event.pubkey).substring(0, 12)}...`, 'success', event.pubkey, identity.name);
+          addLog(`[${identity.name}] New reaction from ${nip19.npubEncode(event.pubkey)}`, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
           addStatToBatch(identity.id, { reactionsReceived: 1 });
           if (identity.settings.autoFollowBack) scheduleFollow(event.pubkey, targetRelays);
         }
@@ -2013,7 +2014,7 @@ export default function App() {
         }
       } else if (event.pubkey === targetHex) {
         const targetNpub = nip19.npubEncode(event.pubkey);
-        addLog(`[${identity.name}] New note from ${targetNpub}`, 'success', event.pubkey, identity.name);
+        addLog(`[${identity.name}] New note from ${targetNpub}`, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
         scheduleReply(event, targetRelays);
         scheduleReactions(event, targetRelays);
         if (identity.settings.repostNotes) scheduleRepost(event, targetRelays);
@@ -2053,17 +2054,29 @@ export default function App() {
     const identity = savedIdentities.find(i => i.id === id);
     if (!identity || !identity.settings.proactive?.enabled) return;
 
+    // Calculate next fuzzy post time immediately (interval ± 15% jitter)
+    const baseMins = identity.settings.proactive.interval || 240;
+    const jitterPercent = 0.15;
+    const jitterRange = baseMins * jitterPercent;
+    const fuzzyMins = baseMins + (Math.random() * jitterRange * 2 - jitterRange);
+    const nextTimestamp = Date.now() + (fuzzyMins * 60 * 1000);
+
+    // Update state immediately to prevent re-triggering
+    setSavedIdentities(prev => prev.map(i =>
+      i.id === id ? { ...i, lastProactivePost: Date.now(), nextProactiveTimestamp: nextTimestamp } : i
+    ));
+
     addTaskToQueue({
       id: `proactive-post-${id}-${Date.now()}`,
       description: `[${identity.name}] AI Note`,
       execute: async () => {
-        // AI Mode
-        const inspiration = await getInspirationNotes(identity, 15);
-        const content = await generateBotMessage(identity.settings, 'original-post', undefined, inspiration, true);
-
-        if (!content) return;
-
         try {
+          // AI Mode
+          const inspiration = await getInspirationNotes(identity, 15);
+          const content = await generateBotMessage(identity.settings, identity.id, 'original-post', undefined, inspiration, true);
+
+          if (!content) return;
+
           const { data: sk } = nip19.decode(identity.nsec);
           const postEvent = finalizeEvent({
             kind: 1,
@@ -2079,25 +2092,12 @@ export default function App() {
 
           addLog(`[${identity.name}] Posted original note: "${content}"`, 'success', undefined, identity.name, postEvent.id, relays);
           addStatToBatch(identity.id, { proactiveNotesSent: 1 });
-          
-          // Calculate next fuzzy post time (interval ± 15% jitter)
-          const baseMins = identity.settings.proactive.interval;
-          const jitterPercent = 0.15;
-          const jitterRange = baseMins * jitterPercent;
-          const fuzzyMins = baseMins + (Math.random() * jitterRange * 2 - jitterRange);
-          const nextTimestamp = Date.now() + (fuzzyMins * 60 * 1000);
-
-          // Update last post time and next scheduled time
-          setSavedIdentities(prev => prev.map(i => 
-            i.id === id ? { ...i, lastProactivePost: Date.now(), nextProactiveTimestamp: nextTimestamp } : i
-          ));
         } catch (e) {
           addLog(`[${identity.name}] Failed to post original note.`, 'error');
         }
       }
     });
   };
-
   // Heartbeat for proactive posting
   useEffect(() => {
     const interval = setInterval(() => {
@@ -2114,14 +2114,18 @@ export default function App() {
           const lastPost = identity.lastProactivePost || identity.createdAt;
           // Initial fuzzy start to prevent all bots posting together on launch
           const initialJitter = (settings.interval * 0.5) * Math.random();
-          const firstNext = lastPost + ((settings.interval + initialJitter) * 60 * 1000);
-          
-          setSavedIdentities(prev => prev.map(i => 
+          let firstNext = lastPost + ((settings.interval + initialJitter) * 60 * 1000);
+
+          // If the calculated time is in the past, stagger the start within 1-10 minutes
+          if (firstNext < now) {
+            firstNext = now + ((1 + Math.random() * 9) * 60 * 1000);
+          }
+
+          setSavedIdentities(prev => prev.map(i =>
             i.id === id ? { ...i, nextProactiveTimestamp: firstNext } : i
           ));
           return;
         }
-
         // 2. Interval Check against fuzzy timestamp
         if (settings.interval > 0 && identity.nextProactiveTimestamp && now >= identity.nextProactiveTimestamp) {
           scheduleProactivePost(id);
@@ -2535,6 +2539,7 @@ export default function App() {
                   setIsVerbose={() => {}}
                   onClear={clearLogs}
                   communityProfiles={communityProfiles}
+                  savedIdentities={savedIdentities}
                   hideVerboseToggle={true}
                 />
               ) : (
@@ -3874,6 +3879,7 @@ export default function App() {
                         setIsVerbose={setIsVerbose}
                         onClear={clearLogs}
                         communityProfiles={communityProfiles}
+                        savedIdentities={savedIdentities}
                       />
                     </div>
                   )}

@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Activity, Trash2, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
 import { LogEntry, ProfileInfo } from '../types';
 import { cn } from '../types';
@@ -11,6 +11,7 @@ interface LogTimelineProps {
   setIsVerbose: (v: boolean) => void;
   onClear: () => void;
   communityProfiles: Record<string, ProfileInfo>;
+  savedIdentities: Identity[];
   hideVerboseToggle?: boolean;
 }
 
@@ -20,9 +21,38 @@ export const LogTimeline = React.memo(({
   setIsVerbose, 
   onClear, 
   communityProfiles,
+  savedIdentities,
   hideVerboseToggle = false
 }: LogTimelineProps) => {
   const filteredLogs = logs.filter(log => isVerbose || log.type !== 'info');
+
+  const groupedLogs = useMemo(() => {
+    const groupsMap = new Map<string, LogEntry[]>();
+    const standaloneLogs: LogEntry[] = [];
+
+    // filteredLogs is sorted by timestamp (newest first)
+    filteredLogs.forEach((log) => {
+      if (log.targetEventId) {
+        const group = groupsMap.get(log.targetEventId) || [];
+        group.push(log);
+        groupsMap.set(log.targetEventId, group);
+      } else {
+        standaloneLogs.push(log);
+      }
+    });
+
+    const allItems: (LogEntry | LogEntry[])[] = [
+      ...Array.from(groupsMap.values()),
+      ...standaloneLogs
+    ];
+
+    // Sort all items by the timestamp of their most recent log entry
+    return allItems.sort((a, b) => {
+      const timeA = Array.isArray(a) ? a[0].timestamp : a.timestamp;
+      const timeB = Array.isArray(b) ? b[0].timestamp : b.timestamp;
+      return timeB - timeA;
+    });
+  }, [filteredLogs]);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-surface">
@@ -66,21 +96,34 @@ export const LogTimeline = React.memo(({
 
       {/* Logs List */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
-        {filteredLogs.length === 0 ? (
+        {groupedLogs.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-on-surface-variant opacity-20 space-y-2">
             <Activity className="w-10 h-10" />
             <p className="text-xs font-bold uppercase tracking-widest">Waiting for activity...</p>
           </div>
         ) : (
           <div className="divide-y divide-outline/5">
-            {filteredLogs.map((log) => (
-              <LogItem 
-                key={log.id} 
-                log={log} 
-                profile={log.pubkey ? communityProfiles[log.pubkey] : undefined} 
-                communityProfiles={communityProfiles}
-              />
-            ))}
+            {groupedLogs.map((item, idx) => {
+              if (Array.isArray(item)) {
+                return (
+                  <LogItemGroup 
+                    key={item[0].id} 
+                    logs={item} 
+                    communityProfiles={communityProfiles}
+                    savedIdentities={savedIdentities}
+                  />
+                );
+              }
+              return (
+                <LogItem 
+                  key={item.id} 
+                  log={item} 
+                  profile={item.pubkey ? communityProfiles[item.pubkey] : undefined} 
+                  communityProfiles={communityProfiles}
+                  savedIdentities={savedIdentities}
+                />
+              );
+            })}
           </div>
         )}
       </div>
@@ -88,15 +131,173 @@ export const LogTimeline = React.memo(({
   );
 });
 
-const LogItem = React.memo(({ log, profile, communityProfiles }: { log: LogEntry, profile?: ProfileInfo, communityProfiles: Record<string, ProfileInfo> }) => {
+const LogItemGroup = React.memo(({ logs, communityProfiles, savedIdentities }: { 
+  logs: LogEntry[], 
+  communityProfiles: Record<string, ProfileInfo>,
+  savedIdentities: Identity[]
+}) => {
+  const [isExpanded, setIsExpanded] = React.useState(false);
+  
+  const { uniqueBotCount, botAvatars, actionCount } = useMemo(() => {
+    const bots = new Map<string, { id?: string, name?: string }>();
+    let actions = 0;
+
+    logs.forEach(l => {
+      const key = l.botId || l.botName || 'unknown';
+      if (!bots.has(key)) {
+        bots.set(key, { id: l.botId, name: l.botName });
+      }
+
+      // Only count actual activities as actions
+      const isAction = l.message.includes('Replied:') || 
+                      l.message.includes('Reacted with') || 
+                      l.message.includes('Reposted') ||
+                      l.message.includes('Followed back');
+      if (isAction) {
+        actions++;
+      }
+    });
+
+    return {
+      uniqueBotCount: bots.size,
+      botAvatars: Array.from(bots.values()),
+      actionCount: actions
+    };
+  }, [logs]);
+
+  const firstLog = logs[0];
+  const profile = firstLog.contextPubkey ? communityProfiles[firstLog.contextPubkey] : undefined;
+
+  return (
+    <div className="flex flex-col px-3 py-2 transition-all group hover:bg-surface-container-low border-l-4 border-emerald-500/20">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-mono text-on-surface-variant/60">
+            {new Date(firstLog.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+          </span>
+          <div className="flex -space-x-2 overflow-hidden">
+            {botAvatars.map((botInfo, i) => {
+              const bot = savedIdentities.find(identity => identity.id === botInfo.id);
+              const botProfile = bot?.settings.profile;
+              return (
+                <img 
+                  key={i}
+                  src={botProfile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${botInfo.id || botInfo.name}`} 
+                  alt={botInfo.name} 
+                  className="inline-block h-5 w-5 rounded-sm ring-2 ring-surface object-cover bg-surface-container-high"
+                  title={botInfo.name}
+                  crossOrigin="anonymous"
+                />
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-1.5 ml-1">
+            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500/80">
+              {uniqueBotCount} Bot{uniqueBotCount !== 1 ? 's' : ''}
+            </span>
+            {actionCount > 0 && (
+              <>
+                <span className="text-[10px] text-on-surface-variant/40">•</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/60">
+                  {actionCount} Action{actionCount !== 1 ? 's' : ''}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+        <button 
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="text-[10px] font-black uppercase tracking-tighter text-on-surface-variant hover:text-emerald-500 transition-colors flex items-center gap-1 bg-surface-container-high px-1.5 py-0.5 rounded-sm border border-outline/10 shadow-sm"
+        >
+          {isExpanded ? 'Hide' : 'Show'} Details
+          <Activity className={cn("w-3 h-3 transition-transform", isExpanded ? "rotate-180" : "")} />
+        </button>
+      </div>
+
+      {firstLog.contextContent && (
+        <div className="px-3 py-2 bg-surface border-l-2 border-outline/20 mb-2 opacity-60 ml-2">
+          {firstLog.contextPubkey && (
+            <div className="flex items-center gap-1.5 mb-1 opacity-80">
+              <img 
+                src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${firstLog.contextPubkey}`} 
+                alt="" 
+                className="w-3.5 h-3.5 rounded-none object-cover grayscale"
+                crossOrigin="anonymous"
+              />
+              <span className="text-[10px] font-black uppercase tracking-tighter text-on-surface-variant">
+                {profile?.name || (firstLog.contextPubkey ? nip19.npubEncode(firstLog.contextPubkey).substring(0, 10) + '...' : 'Unknown')}
+              </span>
+            </div>
+          )}
+          <p className="text-xs leading-relaxed italic text-on-surface-variant line-clamp-2">
+            {firstLog.contextContent}
+          </p>
+        </div>
+      )}
+
+      {isExpanded && (
+        <div className="space-y-1.5 ml-2 animate-in fade-in slide-in-from-top-1 duration-200">
+          {logs
+            .filter(l => !l.message.includes('New note from') && 
+                        !l.message.includes('New mention from') && 
+                        !l.message.includes('New reaction from'))
+            .map((log) => (
+              <div key={log.id} className="flex items-center gap-2 text-xs">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/40" />
+                <LogItemContent 
+                  log={log} 
+                  communityProfiles={communityProfiles} 
+                  savedIdentities={savedIdentities}
+                  compact
+                />
+              </div>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+const LogItemContent = ({ log, communityProfiles, savedIdentities, compact = false }: { 
+  log: LogEntry, 
+  communityProfiles: Record<string, ProfileInfo>,
+  savedIdentities: Identity[],
+  compact?: boolean
+}) => {
   const renderMessage = (message: string) => {
-    // Improved Regex for hex pubkeys (64 chars) and npubs (starts with npub1)
+    // 1. Bot Name Parsing: [BotName]
+    const botRegex = /\[([^\]]+)\]/g;
+    // 2. Nostr Regex: hex pubkeys (64 chars) and npubs (starts with npub1)
     const nostrRegex = /(npub1[a-z0-9]{58}|[a-f0-9]{64})/gi;
-    const parts = message.split(nostrRegex);
+    
+    // Combine splitting for both
+    const parts = message.split(/(\[[^\]]+\]|npub1[a-z0-9]{58}|[a-f0-9]{64})/gi);
     
     if (parts.length === 1) return message;
 
     return parts.map((part, i) => {
+      // Match [BotName]
+      if (part.match(botRegex)) {
+        const botName = part.slice(1, -1);
+        const bot = savedIdentities.find(idx => idx.name === botName || idx.settings.profile.name === botName);
+        const botProfile = bot?.settings.profile;
+
+        return (
+          <span key={i} className="inline-flex items-center gap-1.5 px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-sm mx-0.5 align-middle shadow-sm">
+            <img 
+              src={botProfile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${bot?.id || botName}`} 
+              alt="" 
+              className="w-3.5 h-3.5 rounded-none object-cover"
+              crossOrigin="anonymous"
+            />
+            <span className="text-[11px] font-black uppercase tracking-tight text-emerald-500 truncate max-w-[100px]">
+              {botName}
+            </span>
+          </span>
+        );
+      }
+
+      // Match Nostr Identity
       if (part.match(nostrRegex)) {
         let pk = part.toLowerCase();
         let npub = part.toLowerCase();
@@ -109,7 +310,6 @@ const LogItem = React.memo(({ log, profile, communityProfiles }: { log: LogEntry
             npub = nip19.npubEncode(part);
           }
         } catch (e) {
-          // If it matched the regex but decoding failed (e.g. invalid checksum), just return text
           return part;
         }
 
@@ -136,6 +336,24 @@ const LogItem = React.memo(({ log, profile, communityProfiles }: { log: LogEntry
     });
   };
 
+  return (
+    <div className={cn(
+      "text-sm leading-snug break-words font-medium flex-1",
+      log.type === 'error' ? "text-red-400" :
+      log.type === 'warning' ? "text-amber-400" :
+      "text-on-surface"
+    )}>
+      {renderMessage(log.message)}
+    </div>
+  );
+};
+
+const LogItem = React.memo(({ log, profile, communityProfiles, savedIdentities }: { 
+  log: LogEntry, 
+  profile?: ProfileInfo, 
+  communityProfiles: Record<string, ProfileInfo>,
+  savedIdentities: Identity[]
+}) => {
   return (
     <div className={cn(
       "flex items-start gap-3 px-3 py-2 transition-all group hover:bg-surface-container-low",
@@ -170,7 +388,23 @@ const LogItem = React.memo(({ log, profile, communityProfiles }: { log: LogEntry
             <span className="text-xs font-mono text-on-surface-variant/80 shrink-0">
               {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
             </span>
-            {log.botName && (
+            {log.botId ? (() => {
+              const bot = savedIdentities.find(i => i.id === log.botId);
+              const botProfile = bot?.settings.profile;
+              return (
+                <div className="flex items-center gap-1.5 px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-sm shadow-sm">
+                  <img 
+                    src={botProfile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${log.botId}`} 
+                    alt="" 
+                    className="w-3.5 h-3.5 rounded-none object-cover"
+                    crossOrigin="anonymous"
+                  />
+                  <span className="text-[11px] font-black uppercase tracking-tight text-emerald-500 truncate max-w-[100px]">
+                    {botProfile?.name || log.botName || 'Bot'}
+                  </span>
+                </div>
+              );
+            })() : log.botName && (
               <span className="text-xs font-black uppercase tracking-tighter text-emerald-500 px-1.5 border border-emerald-500/20 rounded-sm bg-emerald-500/5 truncate">
                 {log.botName}
               </span>
@@ -215,19 +449,20 @@ const LogItem = React.memo(({ log, profile, communityProfiles }: { log: LogEntry
               </div>
             )}
             <p className="text-xs leading-relaxed italic text-on-surface-variant line-clamp-3">
-              {renderMessage(log.contextContent)}
+              <LogItemContent 
+                log={log} 
+                communityProfiles={communityProfiles} 
+                savedIdentities={savedIdentities} 
+              />
             </p>
           </div>
         )}
 
-        <div className={cn(
-          "text-sm leading-snug break-words font-medium",
-          log.type === 'error' ? "text-red-400" :
-          log.type === 'warning' ? "text-amber-400" :
-          "text-on-surface"
-        )}>
-          {renderMessage(log.message)}
-        </div>
+        <LogItemContent 
+          log={log} 
+          communityProfiles={communityProfiles} 
+          savedIdentities={savedIdentities} 
+        />
       </div>
     </div>
   );

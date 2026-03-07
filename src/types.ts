@@ -14,7 +14,9 @@ export interface LogEntry {
   message: string;
   pubkey?: string;
   botName?: string;
+  botId?: string;
   eventId?: string;
+  targetEventId?: string;
   relays?: string[];
   contextContent?: string;
   contextPubkey?: string;

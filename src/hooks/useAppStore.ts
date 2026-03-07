@@ -99,7 +99,9 @@ export function useAppStore() {
     eventId?: string, 
     relays?: string[],
     contextContent?: string,
-    contextPubkey?: string
+    contextPubkey?: string,
+    botId?: string,
+    targetEventId?: string
   ) => {
     dispatch({
       type: 'ADD_LOG',
@@ -110,7 +112,9 @@ export function useAppStore() {
         message,
         pubkey,
         botName,
+        botId,
         eventId,
+        targetEventId,
         relays,
         contextContent,
         contextPubkey
