@@ -20,8 +20,6 @@ import {
   Clock, 
   RefreshCw,
   Search,
-  Smile,
-  Check,
   Globe,
   Layout,
   AlertCircle,
@@ -32,7 +30,6 @@ import {
   Sparkles,
   Heart,
   Zap,
-  Save,
   Lock,
   Brain,
   X,
@@ -50,19 +47,18 @@ import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
 
 // New Imports
-import { 
-  LogEntry, 
-  ProfileInfo, 
-  Identity, 
-  BotSettings, 
-  BotTask, 
-  cn, 
-  BotStats 
+import {
+  ProfileInfo,
+  Identity,
+  BotSettings,
+  BotTask,
+  cn,
+  BotStats
 } from './types';
-import { 
-  SUPPORTED_MODELS, 
-  MODEL_PRESETS, 
-  MODEL_HIDDEN_RULES, 
+import {
+  SUPPORTED_MODELS,
+  MODEL_PRESETS,
+  MODEL_HIDDEN_RULES,
   MODEL_DEFAULT_PROMPTS,
   WAIFU_NAMES,
   WAIFU_AVATARS,
@@ -84,10 +80,8 @@ import {
 } from './constants';
 import { useAppStore } from './hooks/useAppStore';
 import { LogTimeline } from './components/LogTimeline';
-import { BotCard } from './components/BotCard';
 
 // --- Helpers ---
-
 function shuffleArray<T>(array: T[]): T[] {
   const newArray = [...array];
   for (let i = newArray.length - 1; i > 0; i--) {
