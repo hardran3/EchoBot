@@ -221,7 +221,7 @@ export default function App() {
 
         Object.entries(aggregates).forEach(([id, update]) => {
           updateStats(id, update);
-          setSavedIdentities(prev => prev.map(i => i.id === id ? { ...i, lastActivityTimestamp: Date.now() } : i));
+          setSavedIdentities(prev => prev.map(i => i.id === id ? { ...i, lastActivityTimestamp: Date.now(), updatedAt: Date.now() } : i));
         });
 
         eventBatchRef.current = [];
@@ -924,33 +924,31 @@ export default function App() {
       // Merge local identities
       savedIdentities.forEach(local => {
         const cloud = mergedMap.get(local.id);
-        if (!cloud || (local.updatedAt || 0) > (cloud.updatedAt || 0)) {
-          // Local is newer or doesn't exist in cloud
-          if (cloud) {
-            // Merge stats maps
-            const mergedStats: BotStats = {
-              repliesSent: { ...(cloud.stats?.repliesSent || {}), ...(local.stats?.repliesSent || {}) },
-              reactionsSent: { ...(cloud.stats?.reactionsSent || {}), ...(local.stats?.reactionsSent || {}) },
-              repostsSent: { ...(cloud.stats?.repostsSent || {}), ...(local.stats?.repostsSent || {}) },
-              proactiveNotesSent: { ...(cloud.stats?.proactiveNotesSent || {}), ...(local.stats?.proactiveNotesSent || {}) },
-              repliesReceived: { ...(cloud.stats?.repliesReceived || {}), ...(local.stats?.repliesReceived || {}) },
-              reactionsReceived: { ...(cloud.stats?.reactionsReceived || {}), ...(local.stats?.reactionsReceived || {}) },
-            };
+        if (!cloud) {
+          // Doesn't exist in cloud, keep local
+          mergedMap.set(local.id, local);
+        } else {
+          // Exists in both, choose newest based on updatedAt
+          const localTime = local.updatedAt || local.createdAt || 0;
+          const cloudTime = cloud.updatedAt || cloud.createdAt || 0;
+          
+          // Merge stats maps regardless of which version is newer to avoid data loss
+          const mergedStats: BotStats = {
+            repliesSent: { ...(cloud.stats?.repliesSent || {}), ...(local.stats?.repliesSent || {}) },
+            reactionsSent: { ...(cloud.stats?.reactionsSent || {}), ...(local.stats?.reactionsSent || {}) },
+            repostsSent: { ...(cloud.stats?.repostsSent || {}), ...(local.stats?.repostsSent || {}) },
+            proactiveNotesSent: { ...(cloud.stats?.proactiveNotesSent || {}), ...(local.stats?.proactiveNotesSent || {}) },
+            repliesReceived: { ...(cloud.stats?.repliesReceived || {}), ...(local.stats?.repliesReceived || {}) },
+            reactionsReceived: { ...(cloud.stats?.reactionsReceived || {}), ...(local.stats?.reactionsReceived || {}) },
+          };
+
+          if (localTime > cloudTime) {
+            // Local is newer, use local but keep merged stats
             mergedMap.set(local.id, { ...local, stats: mergedStats });
           } else {
-            mergedMap.set(local.id, local);
+            // Cloud is newer (or same), use cloud but keep merged stats
+            mergedMap.set(local.id, { ...cloud, stats: mergedStats });
           }
-        } else {
-          // Cloud is newer, but we still merge stats maps to ensure no device data is lost
-          const mergedStats: BotStats = {
-            repliesSent: { ...(local.stats?.repliesSent || {}), ...(cloud.stats?.repliesSent || {}) },
-            reactionsSent: { ...(local.stats?.reactionsSent || {}), ...(cloud.stats?.reactionsSent || {}) },
-            repostsSent: { ...(local.stats?.repostsSent || {}), ...(cloud.stats?.repostsSent || {}) },
-            proactiveNotesSent: { ...(local.stats?.proactiveNotesSent || {}), ...(cloud.stats?.proactiveNotesSent || {}) },
-            repliesReceived: { ...(local.stats?.repliesReceived || {}), ...(cloud.stats?.repliesReceived || {}) },
-            reactionsReceived: { ...(local.stats?.reactionsReceived || {}), ...(cloud.stats?.reactionsReceived || {}) },
-          };
-          mergedMap.set(local.id, { ...cloud, stats: mergedStats });
         }
       });
 
@@ -3030,7 +3028,7 @@ export default function App() {
                                   // Clear schedule when toggled to ensure fresh start
                                   if (activeIdentityId) {
                                     setSavedIdentities(prev => prev.map(i => 
-                                      i.id === activeIdentityId ? { ...i, nextProactiveTimestamp: undefined } : i
+                                      i.id === activeIdentityId ? { ...i, nextProactiveTimestamp: undefined, updatedAt: Date.now() } : i
                                     ));
                                   }
                                 }}>
@@ -3140,7 +3138,7 @@ export default function App() {
                                   // Reset schedule for this bot so the new interval is applied immediately
                                   if (activeIdentityId) {
                                     setSavedIdentities(prev => prev.map(i => 
-                                      i.id === activeIdentityId ? { ...i, nextProactiveTimestamp: undefined } : i
+                                      i.id === activeIdentityId ? { ...i, nextProactiveTimestamp: undefined, updatedAt: Date.now() } : i
                                     ));
                                   }
                                 }}
@@ -3389,14 +3387,13 @@ export default function App() {
                                 >
                                   {isRunning(identity.id) ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
                                 </button>
-                                <button 
+                                <button
                                   onClick={() => {
                                     if (confirm('Permanently delete this identity?')) {
-                                      setSavedIdentities(prev => prev.map(i => i.id === identity.id ? { ...i, deleted: true } : i));
+                                      setSavedIdentities(prev => prev.map(i => i.id === identity.id ? { ...i, deleted: true, updatedAt: Date.now() } : i));
                                     }
                                   }}
-                                  className="p-1.5 bg-surface-container-high text-on-surface-variant hover:text-red-400 rounded-sm transition-all shadow-md border border-outline/10"
-                                  title="Delete"
+                                  className="p-1.5 bg-surface-container-high text-on-surface-variant hover:text-red-400 rounded-sm transition-all shadow-md border border-outline/10"                                  title="Delete"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
