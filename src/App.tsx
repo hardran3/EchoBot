@@ -3067,7 +3067,7 @@ export default function App() {
                             <label className="flex items-center justify-between p-3 bg-surface-container-low border border-outline/10 rounded-sm cursor-pointer hover:bg-surface-container transition-colors shadow-sm">
                               <div className="space-y-0.5">
                                 <div className="text-[13px] font-bold text-on-surface uppercase tracking-wider">Enable Reactions</div>
-                                <div className="text-xs text-on-surface-variant">The bot will send emojis to the target's notes.</div>
+                                <div className="text-sm text-on-surface-variant/80">The bot will send emojis to the target's notes.</div>
                               </div>
                               <div className={cn(
                                 "w-8 h-4 rounded-sm transition-all relative border border-outline/20",
@@ -3114,7 +3114,7 @@ export default function App() {
                               <div className="flex items-center justify-between">
                                 <div className="space-y-0.5">
                                   <div className="text-[13px] font-bold text-on-surface uppercase tracking-wider">Proactive Posting</div>
-                                  <div className="text-xs text-on-surface-variant">Original notes and autonomous interaction.</div>
+                                  <div className="text-sm text-on-surface-variant/80">Original notes and autonomous interaction.</div>
                                 </div>
                                 <div className={cn(
                                   "w-8 h-4 rounded-sm transition-all relative cursor-pointer border border-outline/20",
@@ -3141,7 +3141,7 @@ export default function App() {
                             <label className="flex items-center justify-between p-3 bg-surface-container-low border border-outline/10 rounded-sm cursor-pointer hover:bg-surface-container transition-colors shadow-sm">
                               <div className="space-y-0.5">
                                 <div className="text-[13px] font-bold text-on-surface uppercase tracking-wider">Enable Reposting</div>
-                                <div className="text-xs text-on-surface-variant">Repost target's notes to bot timeline.</div>
+                                <div className="text-sm text-on-surface-variant/80">Repost target's notes to bot timeline.</div>
                               </div>
                               <div className={cn(
                                 "w-8 h-4 rounded-sm transition-all relative border border-outline/20",
@@ -3179,7 +3179,7 @@ export default function App() {
                             <label className="flex items-center justify-between p-3 bg-surface-container-low border border-outline/10 rounded-sm cursor-pointer hover:bg-surface-container transition-colors shadow-sm">
                               <div className="space-y-0.5">
                                 <div className="text-[13px] font-bold text-on-surface uppercase tracking-wider">Follow Back</div>
-                                <div className="text-xs text-on-surface-variant">Follow users who interact with the bot.</div>
+                                <div className="text-sm text-on-surface-variant/80">Follow users who interact with the bot.</div>
                               </div>
                               <div className={cn(
                                 "w-8 h-4 rounded-sm transition-all relative border border-outline/20",
@@ -3203,9 +3203,9 @@ export default function App() {
                               <div className="space-y-0.5 flex-1 pr-4">
                                 <div className="flex items-center gap-2 text-[13px] font-bold text-on-surface uppercase tracking-wider">
                                   Polite Mode
-                                  <span className="text-[9px] bg-emerald-500/10 text-emerald-400 px-1 border border-emerald-500/20 rounded-[2px] tracking-tighter">Recommended</span>
+                                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-1 border border-emerald-500/20 rounded-[2px] tracking-tighter">Recommended</span>
                                 </div>
-                                <div className="text-xs text-on-surface-variant">Bot will only start its own threads on top notes. Direct mentions still work.</div>
+                                <div className="text-sm text-on-surface-variant/80">Bot will only start its own threads on top notes. Direct mentions still work.</div>
                               </div>
                               <div className={cn(
                                 "shrink-0 w-8 h-4 rounded-sm transition-all relative border border-outline/20",
@@ -3842,8 +3842,8 @@ export default function App() {
                       <div className="flex flex-col gap-4">
                         <div className="flex items-center justify-between p-4 bg-surface-container-high border border-outline/10 rounded-sm">
                           <div className="flex flex-col gap-1">
-                            <h4 className="text-xs font-bold uppercase tracking-widest text-white">Verbose Logging</h4>
-                            <p className="text-[10px] text-on-surface-variant">Show all internal process logs in the timeline.</p>
+                            <h4 className="text-[13px] font-black uppercase tracking-wider text-on-surface">Verbose Logging</h4>
+                            <p className="text-sm text-on-surface-variant/80 leading-relaxed">Show all internal process logs in the timeline.</p>
                           </div>
                           <button 
                             onClick={() => setIsVerbose(!isVerbose)}
@@ -3862,8 +3862,8 @@ export default function App() {
                         {/* Global Polite Mode Override */}
                         <div className="flex items-center justify-between p-4 bg-surface-container-high border border-outline/10 rounded-sm">
                           <div className="flex flex-col gap-1">
-                            <h4 className="text-xs font-bold uppercase tracking-widest text-white">Global Polite Mode</h4>
-                            <p className="text-[10px] text-on-surface-variant">Enforce polite behavior for all bots (only start new threads).</p>
+                            <h4 className="text-[13px] font-black uppercase tracking-wider text-on-surface">Global Polite Mode</h4>
+                            <p className="text-sm text-on-surface-variant/80 leading-relaxed">Enforce polite behavior for all bots (only start new threads).</p>
                           </div>
                           <button
                             onClick={() => setGlobalPoliteMode(!globalPoliteMode)}
@@ -3881,7 +3881,8 @@ export default function App() {
 
                         <div className="flex items-center justify-between p-4 bg-surface-container-high border border-outline/10 rounded-sm">
                           <div className="flex flex-col gap-1">
-                            <h4 className="text-xs font-bold uppercase tracking-widest text-white">Global Lightning Sync</h4>                            <p className="text-[10px] text-on-surface-variant">Use your Curator lightning address for all managed bots.</p>
+                            <h4 className="text-[13px] font-black uppercase tracking-wider text-on-surface">Global Lightning Sync</h4>
+                            <p className="text-sm text-on-surface-variant/80 leading-relaxed">Use your Curator lightning address for all managed bots.</p>
                           </div>
                           <button 
                             onClick={() => setGlobalUseCuratorLightning(!globalUseCuratorLightning)}
@@ -3902,17 +3903,6 @@ export default function App() {
 
                   {settingsTab === 'ai' && (
                     <div className="max-w-2xl flex flex-col gap-6">
-                       <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-sm flex gap-3">
-                        <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
-                        <div className="flex flex-col gap-1">
-                          <h4 className="text-xs font-bold text-amber-500 uppercase tracking-widest">AI Safety Notice</h4>
-                          <p className="text-[10px] text-amber-500/80 leading-relaxed">
-                            WebLLM models run locally in your browser cache. Initial download may exceed 2GB. 
-                            Ensure you have adequate GPU memory (VRAM) for the selected model.
-                          </p>
-                        </div>
-                      </div>
-                      
                       <div className="flex flex-col gap-4">
                         <h4 className="text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">Active AI Engine</h4>
                         <div className="grid grid-cols-1 gap-3">
@@ -3935,14 +3925,14 @@ export default function App() {
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-2 mb-1">
                                       <span className={cn(
-                                        "text-sm font-black uppercase tracking-tight",
+                                        "text-[15px] font-black uppercase tracking-wider",
                                         isSelected ? "text-emerald-500" : "text-on-surface"
                                       )}>
                                         {model.name}
                                       </span>
-                                      <span className="text-xs font-mono font-bold text-on-surface-variant/60 bg-surface-container px-1.5 rounded-none border border-outline/5 leading-none">{model.size}</span>
+                                      <span className="text-[10px] font-mono font-bold text-on-surface-variant/60 bg-surface-container px-1.5 rounded-none border border-outline/5 leading-none">{model.size}</span>
                                     </div>
-                                    <p className="text-xs text-on-surface-variant leading-snug italic">{model.description}</p>
+                                    <p className="text-sm text-on-surface-variant/80 leading-relaxed italic">{model.description}</p>
                                   </div>
                                   
                                   <div className="shrink-0">
@@ -3988,6 +3978,17 @@ export default function App() {
                           })}
                         </div>
                       </div>
+
+                      <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-sm flex gap-3">
+                        <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
+                        <div className="flex flex-col gap-1">
+                          <h4 className="text-xs font-bold text-amber-500 uppercase tracking-widest">AI Safety Notice</h4>
+                          <p className="text-xs text-amber-500/90 leading-relaxed">
+                            WebLLM models run locally in your browser cache. Initial download may exceed 2GB. 
+                            Ensure you have adequate GPU memory (VRAM) for the selected model.
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -4007,10 +4008,10 @@ export default function App() {
                       <section className="flex flex-col gap-4">
                         <div className="flex items-center justify-between p-4 bg-surface-container-high border border-outline/10 rounded-sm group hover:border-red-500/20 transition-colors">
                           <div className="flex flex-col gap-1">
-                            <h4 className="text-xs font-bold uppercase tracking-widest text-white">Application Reset</h4>
-                            <p className="text-[10px] text-on-surface-variant">Clear all local storage, identities, and settings.</p>
+                            <h4 className="text-[13px] font-black uppercase tracking-wider text-on-surface">Application Reset</h4>
+                            <p className="text-sm text-on-surface-variant/80 leading-relaxed">Clear all local storage, identities, and settings.</p>
                           </div>
-                          <button 
+                          <button
                             onClick={() => {
                               if (confirm('Are you ABSOLUTELY sure? This will delete all local bots and reset the app.')) {
                                 if (confirm('FINAL WARNING: This is IRREVERSIBLE. Proceed with Fresh Start?')) {
@@ -4018,14 +4019,13 @@ export default function App() {
                                 }
                               }
                             }}
-                            className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-400 border border-red-500/20 rounded-sm text-[10px] font-black uppercase tracking-[0.15em] hover:bg-red-500 hover:text-white transition-all shadow-md active:scale-95"
+                            className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-400 border border-red-500/20 rounded-sm text-[11px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all shadow-md active:scale-95"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             Fresh Start
                           </button>
                         </div>
-                      </section>
-                    </div>
+                      </section>                    </div>
                   )}
 
                   {settingsTab === 'logs' && (
