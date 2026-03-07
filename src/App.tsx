@@ -3370,7 +3370,7 @@ export default function App() {
         )}
 
         {currentView === 'manager' && (
-          <>
+          <div className="lg:contents flex flex-col gap-2">
             {/* Left Nav for Manager */}
             <div className="lg:col-span-3 lg:flex flex-col lg:min-h-[200px] w-full overflow-hidden">
               <section className="bg-surface-container border border-outline/10 rounded-sm p-3 flex flex-col gap-2">
@@ -3758,7 +3758,7 @@ export default function App() {
                 </div>
               </section>
             </div>
-          </>
+          </div>
         )}
 
         {currentView === 'settings' && (
