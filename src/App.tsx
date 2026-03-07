@@ -158,7 +158,6 @@ export default function App() {
   const [currentIdentity, setCurrentIdentity] = useState<{ sk: Uint8Array; pk: string } | null>(null);
   const [activeRelays, setActiveRelays] = useState<string[]>([]);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
-  const [showManager, setShowManager] = useState(false);
   const [managerTab, setManagerTab] = useState<'local' | 'community'>('local');
   const [settingsTab, setSettingsTab] = useState<'general' | 'ai' | 'advanced' | 'logs'>('general');
   const [globalUseCuratorLightning, setGlobalUseCuratorLightning] = useState(() => {
@@ -652,7 +651,6 @@ export default function App() {
       const pk = getPublicKey(sk);
       setCurrentIdentity({ sk, pk });
       setActiveIdentityId(first.id);
-      addLog(`Loaded identity: ${first.settings.profile.name}`, 'info');
     } else {
       setShowOnboarding(true);
       addLog('Welcome to EchoBot! Let\'s set up your first autonomous AI.', 'info');
@@ -1159,7 +1157,7 @@ export default function App() {
 
     setSavedIdentities(prev => [newIdentity, ...prev]);
     loadIdentity(newIdentity);
-    setShowManager(false);
+    setCurrentView('dashboard');
     addLog(`Imported "${persona.settings.profile.name}" by ${persona.author.substring(0, 8)}...`, 'success');
   };
 
@@ -1434,8 +1432,7 @@ export default function App() {
       });
 
       setActiveIdentityId(identity.id);
-      addLog(`Loaded identity: ${identity.settings.profile.name}`, 'info');
-      setShowManager(false);
+      setCurrentView('dashboard');
       // --- NEW: Fetch target profile for UI visibility ---
       if (identity.settings.targetNpub) {
         try {
@@ -3156,7 +3153,10 @@ export default function App() {
                       
                       <div className="flex items-center gap-1">
                         <button 
-                          onClick={() => loadIdentity(identity)}
+                          onClick={() => {
+                            loadIdentity(identity);
+                            setRightTab('persona');
+                          }}
                           className={cn(
                             "p-1 rounded-sm transition-all",
                             activeIdentityId === identity.id 
@@ -3328,7 +3328,11 @@ export default function App() {
                               
                               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button 
-                                  onClick={() => loadIdentity(identity)}
+                                  onClick={() => {
+                                    loadIdentity(identity);
+                                    setCurrentView('dashboard');
+                                    setRightTab('persona');
+                                  }}
                                   className={cn(
                                     "p-1.5 rounded-sm transition-all shadow-md",
                                     activeIdentityId === identity.id 
@@ -3410,60 +3414,58 @@ export default function App() {
                             </div>
 
                             {/* Unified Status Bar at Bottom */}
-                            {(activeIdentityId === identity.id || isRunning(identity.id)) && (
-                              <div className={cn(
-                                "mt-auto -mx-3 -mb-3 px-3 py-1.5 border-t flex items-center justify-between transition-colors",
-                                isRunning(identity.id) 
-                                  ? "bg-emerald-500/10 border-emerald-500/20" 
-                                  : "bg-surface-container-high border-outline/10"
-                              )}>
-                                <div className="flex items-center gap-1.5">
-                                  {isRunning(identity.id) ? (
-                                    <div className="flex items-center gap-1.5">
-                                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
-                                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live</span>
-                                    </div>
-                                  ) : (
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500/60">Focused</span>
-                                  )}
-                                </div>
-
-                                <div className="flex items-center gap-1.5 min-w-0 max-w-[60%]">
-                                  {(() => {
-                                    const targetPk = (() => {
-                                      try { 
-                                        const decoded = nip19.decode(identity.settings.targetNpub) as any;
-                                        return decoded.type === 'npub' ? (decoded.data as string) : '';
-                                      } catch (e) { return ''; }
-                                    })();
-                                    const profile = targetPk ? communityProfiles[targetPk] : null;
-                                    return (
-                                      <>
-                                        {targetPk ? (
-                                          <div className="flex items-center gap-1.5 min-w-0">
-                                            <img 
-                                              src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${targetPk}`} 
-                                              className="w-4 h-4 rounded-sm object-cover border border-outline/10 shrink-0 shadow-sm" 
-                                              alt=""
-                                              crossOrigin="anonymous"
-                                              referrerPolicy="no-referrer"
-                                            />
-                                            <span className="text-[10px] font-bold text-on-surface-variant truncate tracking-tight">
-                                              {identity.settings.targetName || profile?.name || identity.settings.targetNpub.substring(0, 8)}
-                                            </span>
-                                          </div>
-                                        ) : (
-                                          <div className="flex items-center gap-1 opacity-40">
-                                            <Activity className="w-2.5 h-2.5 text-emerald-500" />
-                                            <span className="text-[10px] font-black uppercase tracking-tighter text-emerald-500">Self</span>
-                                          </div>
-                                        )}
-                                      </>
-                                    );
-                                  })()}
-                                </div>
+                            <div className={cn(
+                              "mt-auto -mx-3 -mb-3 px-3 py-1.5 border-t flex items-center justify-between transition-colors",
+                              isRunning(identity.id) 
+                                ? "bg-emerald-500/10 border-emerald-500/20" 
+                                : "bg-surface-container-high border-outline/10"
+                            )}>
+                              <div className="flex items-center gap-1.5">
+                                {isRunning(identity.id) ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60 italic">Idle</span>
+                                )}
                               </div>
-                            )}
+
+                              <div className="flex items-center gap-1.5 min-w-0 max-w-[60%]">
+                                {(() => {
+                                  const targetPk = (() => {
+                                    try { 
+                                      const decoded = nip19.decode(identity.settings.targetNpub) as any;
+                                      return decoded.type === 'npub' ? (decoded.data as string) : '';
+                                    } catch (e) { return ''; }
+                                  })();
+                                  const profile = targetPk ? communityProfiles[targetPk] : null;
+                                  return (
+                                    <>
+                                      {targetPk ? (
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          <img 
+                                            src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${targetPk}`} 
+                                            className="w-4 h-4 rounded-sm object-cover border border-outline/10 shrink-0 shadow-sm" 
+                                            alt=""
+                                            crossOrigin="anonymous"
+                                            referrerPolicy="no-referrer"
+                                          />
+                                          <span className="text-[10px] font-bold text-on-surface-variant truncate tracking-tight">
+                                            {identity.settings.targetName || profile?.name || identity.settings.targetNpub.substring(0, 8)}
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center gap-1 opacity-40">
+                                          <Brain className="w-3 h-3" />
+                                          <span className="text-[10px] font-bold uppercase tracking-widest">Self-Directed</span>
+                                        </div>
+                                      )}
+                                    </>
+                                  );
+                                })()}
+                              </div>
+                            </div>
                           </div>
                         ))
                       )}
