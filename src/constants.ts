@@ -97,6 +97,8 @@ export const DEFAULT_SETTINGS: BotSettings = {
   minDelay: 5,
   maxDelay: 30,
   targetNpub: '',
+  targetHashtags: '',
+  targetKeywords: '',
   targetName: '',
   profile: {
     name: 'Echo Bot',

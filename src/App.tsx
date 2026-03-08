@@ -42,7 +42,9 @@ import {
   ChevronUp,
   ChevronDown,
   PenTool,
-  FileText
+  FileText,
+  Hash,
+  Type
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -180,7 +182,7 @@ export default function App() {
   const [showEmojiPickerDialog, setShowEmojiPickerDialog] = useState(false);
   const [emojiSearchQuery, setEmojiSearchQuery] = useState('');
   const [swarmSearchQuery, setSwarmSearchQuery] = useState('');
-  const [newTargetInput, setNewTargetInput] = useState('');
+  const [monitoringInput, setMonitoringInput] = useState('');
   const [savedIdentities, setSavedIdentities] = useState<Identity[]>([]);
   const [activeIdentityId, setActiveIdentityId] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<'dashboard' | 'manager' | 'settings'>('dashboard');
@@ -891,7 +893,7 @@ export default function App() {
     const targetPubkeys: string[] = [];
     savedIdentities.forEach(identity => {
       if (identity.settings.targetNpub) {
-        identity.settings.targetNpub.split(',').forEach(npub => {
+        String(identity.settings.targetNpub || '').split(',').forEach(npub => {
           try {
             const decoded = nip19.decode(npub.trim()) as any;
             if (decoded.type === 'npub' && !communityProfiles[decoded.data]) {
@@ -1885,7 +1887,7 @@ export default function App() {
 
     const targetHexes: string[] = [];
     if (identity.settings.targetNpub) {
-      const npubs = identity.settings.targetNpub.split(',').map(s => s.trim()).filter(s => s.length > 0);
+      const npubs = String(identity.settings.targetNpub || '').split(',').map(s => s.trim()).filter(s => s.length > 0);
       for (const npub of npubs) {
         try {
           const decoded = nip19.decode(npub) as any;
@@ -1965,10 +1967,14 @@ export default function App() {
             targetRelays = [...new Set([...relays, ...targetRelays])];
             addLog(`Updated relays for ${identity.name} via NIP-65.`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
           }
-          }
-          } catch (e) {
-          addLog(`Profile/Relay discovery failed for ${identity.name}, using defaults.`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
-          }    }
+        }
+      } catch (e) {
+        addLog(`Profile/Relay discovery failed for ${identity.name}, using defaults.`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
+      }
+    }
+
+    const hashtags = String(identity.settings.targetHashtags || '').split(',').map(s => s.trim().toLowerCase().replace(/^#/, '')).filter(s => s.length > 0);
+    const keywords = String(identity.settings.targetKeywords || '').split(',').map(s => s.trim().toLowerCase()).filter(s => s.length > 0);
 
     // 2. Helper functions for processing events
     const getReplyTask = (event: any, relays: string[]): BotTask => ({
@@ -2137,6 +2143,10 @@ export default function App() {
 
       // Received stats
       const mentionsSelf = event.tags.some((t: any) => t[0] === 'p' && t[1] === pk);
+      const isTargetAuthor = targetHexes.includes(event.pubkey);
+      const matchesHashtag = event.tags.some((t: any) => t[0] === 't' && hashtags.includes(t[1].toLowerCase()));
+      const matchesKeyword = keywords.some(kw => event.content.toLowerCase().includes(kw));
+
       if (mentionsSelf) {
         if (event.kind === 1) {
           addLog(`[${identity.name}] New mention from ${nip19.npubEncode(event.pubkey)}`, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
@@ -2170,7 +2180,7 @@ export default function App() {
 
       const interactionTasks: BotTask[] = [];
 
-      if (mentionsSelf && !targetHexes.includes(event.pubkey)) {
+      if (mentionsSelf && !isTargetAuthor) {
         // Only reply to mentions if enabled
         if (identity.settings.proactive?.replyToMentions) {
           // Bot-to-bot protection: check if sender is another one of our bots
@@ -2201,7 +2211,7 @@ export default function App() {
             }
           }
         }
-      } else if (targetHexes.includes(event.pubkey)) {
+      } else if (isTargetAuthor || matchesHashtag || matchesKeyword) {
         // Polite Mode Logic: If enabled, only interact with root notes (no 'e' tags)
         // Direct mentions (mentionsSelf) already handled above and override polite mode.
         const isPolite = identity.settings.politeMode || globalPoliteMode;
@@ -2213,7 +2223,11 @@ export default function App() {
         }
 
         const senderNpub = nip19.npubEncode(event.pubkey);
-        addLog(`[${identity.name}] New note from ${senderNpub}`, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
+        let logMsg = `[${identity.name}] New note from ${senderNpub}`;
+        if (matchesHashtag) logMsg = `[${identity.name}] New note matching hashtag`;
+        if (matchesKeyword) logMsg = `[${identity.name}] New note matching keyword`;
+
+        addLog(logMsg, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
         
         interactionTasks.push(getReplyTask(event, targetRelays));
 
@@ -2258,15 +2272,22 @@ export default function App() {
 
     const now = Math.floor(Date.now() / 1000);
     
-    // Subscribe to target notes (only if targets exist)
-    let subTarget: any = null;
+    // Subscribe to targets (authors, hashtags, keywords)
+    const monitorFilters: any[] = [];
     if (targetHexes.length > 0) {
-      subTarget = poolRef.current.subscribeMany(targetRelays, 
-        {
-          kinds: [1],
-          authors: targetHexes,
-          since: now
-        }, { onevent: eventHandler });
+      monitorFilters.push({ kinds: [1], authors: targetHexes, since: now });
+    }
+    if (hashtags.length > 0) {
+      monitorFilters.push({ kinds: [1], '#t': hashtags, since: now });
+    }
+    if (keywords.length > 0) {
+      // Use NIP-50 search if keywords are provided (best effort, many relays don't support)
+      monitorFilters.push({ kinds: [1], search: keywords.join(' '), since: now });
+    }
+
+    let subTarget: any = null;
+    if (monitorFilters.length > 0) {
+      subTarget = poolRef.current.subscribeMany(targetRelays, monitorFilters, { onevent: eventHandler });
     }
 
     // Subscribe to mentions
@@ -2600,16 +2621,15 @@ export default function App() {
                         </button>
                         <button
                           onClick={() => isRunning(identity.id) ? stopBot(identity.id) : startBot(identity)}
-                          disabled={!identity.settings.targetNpub && !identity.settings.proactive?.enabled}
+                          disabled={!identity.settings.targetNpub && !identity.settings.targetHashtags && !identity.settings.targetKeywords && !identity.settings.proactive?.enabled}
                           className={cn(
                             "p-1 rounded-sm transition-all",
                             isRunning(identity.id)
                               ? "text-red-400 hover:text-red-500"
-                              : (!identity.settings.targetNpub && !identity.settings.proactive?.enabled)
+                              : (!identity.settings.targetNpub && !identity.settings.targetHashtags && !identity.settings.targetKeywords && !identity.settings.proactive?.enabled)
                                 ? "text-on-surface-variant/20 cursor-not-allowed"
                                 : "text-emerald-500 hover:text-emerald-400"
-                          )}
-                          title={isRunning(identity.id) ? "Stop Bot" : "Start Bot"}
+                          )}                          title={isRunning(identity.id) ? "Stop Bot" : "Start Bot"}
                         >
                           {isRunning(identity.id) ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
                         </button>
@@ -2727,57 +2747,82 @@ export default function App() {
             </div>
           </section>
 
-          {/* Monitoring Target Card */}
+          {/* Monitoring Card */}
           <section className="bg-surface-container border border-outline/10 rounded-sm p-3 space-y-3 relative overflow-hidden shadow-sm">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-on-surface-variant">
                 <Target className="w-4 h-4 text-emerald-500" />
-                <h2 className="text-xs font-bold uppercase tracking-widest">Monitoring Targets</h2>
+                <h2 className="text-xs font-bold uppercase tracking-widest text-white">Monitoring</h2>
               </div>
             </div>
 
-            <div className="flex flex-col gap-3">
-              {/* Add Target Input */}
+            {/* Unified Monitoring Input */}
+            <div className="space-y-2">
               <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <input 
-                    type="text"
-                    placeholder="Enter target npub..."
-                    value={newTargetInput}
-                    onChange={(e) => setNewTargetInput(e.target.value)}
-                    disabled={activeIdentityId ? isRunning(activeIdentityId) : false}
-                    className="w-full bg-surface border border-outline/20 rounded-sm px-2 py-1.5 text-[11px] focus:outline-none focus:border-emerald-500/50 transition-colors disabled:opacity-50 font-mono"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newTargetInput.trim()) {
-                        const current = settings.targetNpub ? settings.targetNpub.split(',').map(s => s.trim()) : [];
-                        if (!current.includes(newTargetInput.trim())) {
-                          setSettings(s => ({ ...s, targetNpub: [...current, newTargetInput.trim()].join(', ') }));
+                <input 
+                  type="text"
+                  placeholder="Enter npub, #hashtag, or keyword..."
+                  value={monitoringInput}
+                  onChange={(e) => setMonitoringInput(e.target.value)}
+                  disabled={activeIdentityId ? isRunning(activeIdentityId) : false}
+                  className="flex-1 bg-surface border border-outline/20 rounded-sm px-2 py-1.5 text-[10px] focus:outline-none focus:border-emerald-500/50 transition-colors disabled:opacity-50 font-mono"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && monitoringInput.trim()) {
+                      const val = monitoringInput.trim();
+                      if (val.startsWith('npub1')) {
+                        const current = String(settings.targetNpub || '').split(',').map(s => s.trim()).filter(Boolean);
+                        if (!current.includes(val)) {
+                          setSettings(s => ({ ...s, targetNpub: [...current, val].join(', ') }));
                         }
-                        setNewTargetInput('');
+                      } else if (val.startsWith('#')) {
+                        const current = String(settings.targetHashtags || '').split(',').map(s => s.trim()).filter(Boolean);
+                        if (!current.includes(val)) {
+                          setSettings(s => ({ ...s, targetHashtags: [...current, val].join(', ') }));
+                        }
+                      } else {
+                        const current = String(settings.targetKeywords || '').split(',').map(s => s.trim()).filter(Boolean);
+                        if (!current.includes(val)) {
+                          setSettings(s => ({ ...s, targetKeywords: [...current, val].join(', ') }));
+                        }
                       }
-                    }}
-                  />
-                </div>
-                <button 
-                  onClick={() => {
-                    if (newTargetInput.trim()) {
-                      const current = settings.targetNpub ? settings.targetNpub.split(',').map(s => s.trim()) : [];
-                      if (!current.includes(newTargetInput.trim())) {
-                        setSettings(s => ({ ...s, targetNpub: [...current, newTargetInput.trim()].join(', ') }));
-                      }
-                      setNewTargetInput('');
+                      setMonitoringInput('');
                     }
                   }}
-                  disabled={(activeIdentityId ? isRunning(activeIdentityId) : false) || !newTargetInput.trim()}
-                  className="px-3 bg-emerald-500 text-black rounded-sm text-[10px] font-black uppercase tracking-widest hover:bg-emerald-400 transition-all disabled:opacity-30 disabled:grayscale"
+                />
+                <button 
+                  onClick={() => {
+                    if (monitoringInput.trim()) {
+                      const val = monitoringInput.trim();
+                      if (val.startsWith('npub1')) {
+                        const current = String(settings.targetNpub || '').split(',').map(s => s.trim()).filter(Boolean);
+                        if (!current.includes(val)) {
+                          setSettings(s => ({ ...s, targetNpub: [...current, val].join(', ') }));
+                        }
+                      } else if (val.startsWith('#')) {
+                        const current = String(settings.targetHashtags || '').split(',').map(s => s.trim()).filter(Boolean);
+                        if (!current.includes(val)) {
+                          setSettings(s => ({ ...s, targetHashtags: [...current, val].join(', ') }));
+                        }
+                      } else {
+                        const current = String(settings.targetKeywords || '').split(',').map(s => s.trim()).filter(Boolean);
+                        if (!current.includes(val)) {
+                          setSettings(s => ({ ...s, targetKeywords: [...current, val].join(', ') }));
+                        }
+                      }
+                      setMonitoringInput('');
+                    }
+                  }}
+                  disabled={(activeIdentityId ? isRunning(activeIdentityId) : false) || !monitoringInput.trim()}
+                  className="px-3 bg-surface-container-high text-on-surface-variant rounded-sm text-[10px] font-black uppercase tracking-widest hover:text-emerald-400 transition-all border border-outline/10 disabled:opacity-30"
                 >
                   Add
                 </button>
               </div>
 
-              {/* Target Chips */}
-              <div className="flex flex-col gap-1.5 max-h-[200px] overflow-y-auto custom-scrollbar pr-1">
-                {settings.targetNpub.split(',').map(s => s.trim()).filter(s => s.length > 0).map((npub, idx) => {
+              {/* Combined Chip Area */}
+              <div className="flex flex-wrap gap-1.5 max-h-[200px] overflow-y-auto custom-scrollbar p-0.5">
+                {/* User Chips */}
+                {String(settings.targetNpub || '').split(',').map(s => s.trim()).filter(Boolean).map((npub, idx) => {
                   let pk = '';
                   try {
                     const decoded = nip19.decode(npub) as any;
@@ -2786,43 +2831,79 @@ export default function App() {
                   const profile = communityProfiles[pk];
 
                   return (
-                    <div key={idx} className="flex items-center gap-2 p-1.5 bg-surface border border-outline/10 rounded-sm group/chip">
+                    <div key={`u-${idx}`} className="flex items-center gap-1.5 pl-1 pr-1 py-0.5 bg-surface border border-outline/10 rounded-sm group/chip shrink-0">
                       <img 
                         src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${pk || npub}`} 
                         alt="" 
-                        className="w-6 h-6 rounded-sm bg-surface-container-high border border-outline/10 object-cover"
+                        className="w-3.5 h-3.5 rounded-full bg-surface-container-high border border-outline/10 object-cover"
                         crossOrigin="anonymous"
                       />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[11px] font-bold text-on-surface truncate leading-tight">
-                          {profile?.name || (pk ? `${npub.substring(0, 8)}...` : 'Invalid Npub')}
-                        </div>
-                        <div className="text-[9px] text-on-surface-variant font-mono truncate leading-none opacity-50">
-                          {npub.substring(0, 16)}...
-                        </div>
-                      </div>
+                      <span className="text-[10px] font-bold text-on-surface truncate max-w-[80px]">
+                        {profile?.name || (pk ? `${npub.substring(0, 8)}...` : 'User')}
+                      </span>
                       <button 
                         onClick={() => {
-                          const current = settings.targetNpub.split(',').map(s => s.trim());
+                          const current = String(settings.targetNpub || '').split(',').map(s => s.trim());
                           const next = current.filter(n => n !== npub).join(', ');
                           setSettings(s => ({ ...s, targetNpub: next }));
                         }}
                         disabled={activeIdentityId ? isRunning(activeIdentityId) : false}
-                        className="p-1 hover:bg-red-500/10 text-on-surface-variant/40 hover:text-red-400 rounded-sm transition-all disabled:opacity-0"
-                        title="Remove Target"
+                        className="text-on-surface-variant/40 hover:text-red-400 transition-colors"
                       >
-                        <X className="w-3.5 h-3.5" />
+                        <X className="w-2.5 h-2.5" />
                       </button>
                     </div>
                   );
                 })}
-                {!settings.targetNpub && (
-                  <div className="py-4 text-center opacity-20 italic text-[10px] font-bold uppercase tracking-widest">
-                    No targets selected
+
+                {/* Hashtag Chips */}
+                {String(settings.targetHashtags || '').split(',').map(s => s.trim()).filter(Boolean).map((tag, idx) => (
+                  <div key={`h-${idx}`} className="flex items-center gap-1.5 px-1.5 py-0.5 bg-emerald-500/5 border border-emerald-500/10 rounded-sm shrink-0">
+                    <Hash className="w-2.5 h-2.5 text-emerald-500/60" />
+                    <span className="text-[10px] font-bold text-emerald-400">{tag.startsWith('#') ? tag : `#${tag}`}</span>
+                    <button 
+                      onClick={() => {
+                        const current = String(settings.targetHashtags || '').split(',').map(s => s.trim());
+                        const next = current.filter(n => n !== tag).join(', ');
+                        setSettings(s => ({ ...s, targetHashtags: next }));
+                      }}
+                      disabled={activeIdentityId ? isRunning(activeIdentityId) : false}
+                      className="text-on-surface-variant/40 hover:text-red-400 transition-colors"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                ))}
+
+                {/* Keyword Chips */}
+                {String(settings.targetKeywords || '').split(',').map(s => s.trim()).filter(Boolean).map((kw, idx) => (
+                  <div key={`k-${idx}`} className="flex items-center gap-1.5 px-1.5 py-0.5 bg-surface border border-outline/10 rounded-sm shrink-0">
+                    <Type className="w-2.5 h-2.5 text-on-surface-variant/40" />
+                    <span className="text-[10px] font-bold text-on-surface-variant">{kw}</span>
+                    <button 
+                      onClick={() => {
+                        const current = String(settings.targetKeywords || '').split(',').map(s => s.trim());
+                        const next = current.filter(n => n !== kw).join(', ');
+                        setSettings(s => ({ ...s, targetKeywords: next }));
+                      }}
+                      disabled={activeIdentityId ? isRunning(activeIdentityId) : false}
+                      className="text-on-surface-variant/40 hover:text-red-400 transition-colors"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                ))}
+
+                {!settings.targetNpub && !settings.targetHashtags && !settings.targetKeywords && (
+                  <div className="w-full py-4 text-center opacity-20 italic text-[10px] font-bold uppercase tracking-widest">
+                    No active monitoring
                   </div>
                 )}
               </div>
+            </div>
 
+            {/* Start/Stop Button */}
+            <div className="pt-1">
               {activeIdentityId && isRunning(activeIdentityId) ? (
                 <button 
                   onClick={() => stopBot(activeIdentityId)}
@@ -2848,10 +2929,10 @@ export default function App() {
                       startBot(identity);
                     }
                   }}
-                  disabled={((settings.useAI && aiStatus !== 'ready') || !activeIdentityId) || (!settings.targetNpub && !settings.proactive?.enabled)}
+                  disabled={((settings.useAI && aiStatus !== 'ready') || !activeIdentityId) || (!settings.targetNpub && !settings.targetHashtags && !settings.targetKeywords && !settings.proactive?.enabled)}
                   className={cn(
                     "w-full h-[32px] flex items-center justify-center rounded-sm transition-all shadow-sm border text-[11px] font-bold uppercase tracking-widest",
-                    ((settings.useAI && aiStatus !== 'ready') || !activeIdentityId) || (!settings.targetNpub && !settings.proactive?.enabled)
+                    ((settings.useAI && aiStatus !== 'ready') || !activeIdentityId) || (!settings.targetNpub && !settings.targetHashtags && !settings.targetKeywords && !settings.proactive?.enabled)
                       ? "bg-surface-container-high text-on-surface-variant/40 border-outline/10 cursor-not-allowed"
                       : "bg-emerald-500 text-black border-emerald-500 hover:bg-emerald-400"
                   )}
@@ -3758,16 +3839,15 @@ export default function App() {
                                   </button>
                                   <button
                                     onClick={() => isRunning(identity.id) ? stopBot(identity.id) : startBot(identity)}
-                                    disabled={!identity.settings.targetNpub && !identity.settings.proactive?.enabled}
+                                    disabled={!identity.settings.targetNpub && !identity.settings.targetHashtags && !identity.settings.targetKeywords && !identity.settings.proactive?.enabled}
                                     className={cn(
                                       "p-1.5 rounded-sm transition-all shadow-md",
                                       isRunning(identity.id)
                                         ? "bg-red-500 text-white hover:bg-red-600"
-                                        : (!identity.settings.targetNpub && !identity.settings.proactive?.enabled)
+                                        : (!identity.settings.targetNpub && !identity.settings.targetHashtags && !identity.settings.targetKeywords && !identity.settings.proactive?.enabled)
                                           ? "bg-surface-container-high text-on-surface-variant/40 cursor-not-allowed"
                                           : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black border border-emerald-500/20"
-                                    )}
-                                    title={isRunning(identity.id) ? "Stop Bot" : "Start Bot"}
+                                    )}                                    title={isRunning(identity.id) ? "Stop Bot" : "Start Bot"}
                                   >
                                     {isRunning(identity.id) ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
                                   </button>

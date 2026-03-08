@@ -66,7 +66,9 @@ export interface Identity {
 export interface BotSettings {
   minDelay: number; // seconds
   maxDelay: number; // seconds
-  targetNpub: string;
+  targetNpub: string; // Comma-separated npubs
+  targetHashtags: string; // Comma-separated hashtags
+  targetKeywords: string; // Comma-separated keywords
   targetName: string;
   profile: ProfileInfo;
   reactToNotes: boolean;
