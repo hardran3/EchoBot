@@ -669,6 +669,13 @@ export default function App() {
         } else {
           setSavedIdentities(loadedIdentities);
         }
+
+        // Initialize store identityStats
+        loadedIdentities.forEach(id => {
+          if (id.stats) {
+            setIdentityStats(id.id, id.stats);
+          }
+        });
       } catch (e) {
         console.error('Failed to parse saved identities:', e);
       }
@@ -738,6 +745,17 @@ export default function App() {
       }));
     }
     }, [settings, currentIdentity, activeIdentityId]);
+  // Sync identityStats back into savedIdentities when they change
+  useEffect(() => {
+    if (Object.keys(identityStats).length === 0) return;
+    setSavedIdentities(prev => prev.map(id => {
+      if (identityStats[id.id]) {
+        return { ...id, stats: identityStats[id.id] };
+      }
+      return id;
+    }));
+  }, [identityStats]);
+
   // Persist the saved identities list whenever it changes
   useEffect(() => {
     if (isInitialMountIdentities.current) {
@@ -2073,7 +2091,7 @@ export default function App() {
           const allRelays = [...new Set([...relays, ...PUBLISH_RELAYS])];
           const pubs = poolRef.current.publish(allRelays, event);
           await Promise.allSettled(pubs);
-          addLog(`[${identity.name}] Followed back user.`, 'success', undefined, identity.name);
+          addLog(`[${identity.name}] Followed back user.`, 'success', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
         } catch (e) {}
       }
     });
@@ -2280,10 +2298,10 @@ export default function App() {
           const pubs = poolRef.current.publish(relays, postEvent);
           await Promise.allSettled(pubs);
 
-          addLog(`[${identity.name}] Posted original note: "${content}"`, 'success', undefined, identity.name, postEvent.id, relays);
+          addLog(`[${identity.name}] Posted original note: "${content}"`, 'success', undefined, identity.name, postEvent.id, relays, content, undefined, identity.id, postEvent.id);
           addStatToBatch(identity.id, { proactiveNotesSent: 1 });
         } catch (e) {
-          addLog(`[${identity.name}] Failed to post original note.`, 'error');
+          addLog(`[${identity.name}] Failed to post original note.`, 'error', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
         }
       }
     });
@@ -2576,15 +2594,15 @@ export default function App() {
                         <div className="flex items-center gap-2">
                           <div className="flex items-center gap-0.5" title="Notes">
                             <FileText className="w-2.5 h-2.5 text-blue-400/50" />
-                            <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sessionStats[identity.id].proactive || 0}</span>
+                            <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(sessionStats[identity.id].proactiveNotesSent) || 0}</span>
                           </div>
                           <div className="flex items-center gap-0.5" title="Replies">
                             <MessageSquare className="w-2.5 h-2.5 text-emerald-400/50" />
-                            <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sessionStats[identity.id].replies || 0}</span>
+                            <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(sessionStats[identity.id].repliesSent) || 0}</span>
                           </div>
                           <div className="flex items-center gap-0.5" title="Reactions">
                             <Heart className="w-2.5 h-2.5 text-pink-400/50" />
-                            <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sessionStats[identity.id].reactions || 0}</span>
+                            <span className="text-[10px] font-mono font-bold text-on-surface-variant">{sumStats(sessionStats[identity.id].reactionsSent) || 0}</span>
                           </div>
                         </div>
                         <div className="text-[10px] font-bold text-on-surface-variant/30 uppercase tracking-tighter">Live</div>
@@ -2920,7 +2938,7 @@ export default function App() {
             <div className="flex-1 flex flex-col min-h-0">
               {rightTab === 'timeline' ? (
                 <LogTimeline 
-                  logs={logs}
+                  logs={logs.filter(l => !activeIdentityId || l.botId === activeIdentityId)}
                   isVerbose={false}
                   setIsVerbose={() => {}}
                   onClear={clearLogs}

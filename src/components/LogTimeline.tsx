@@ -152,7 +152,8 @@ const LogItemGroup = React.memo(({ logs, communityProfiles, savedIdentities }: {
       const isAction = l.message.includes('Replied:') || 
                       l.message.includes('Reacted with') || 
                       l.message.includes('Reposted') ||
-                      l.message.includes('Followed back');
+                      l.message.includes('Followed back') ||
+                      l.message.includes('Posted original note:');
       if (isAction) {
         actions++;
       }
@@ -237,11 +238,26 @@ const LogItemGroup = React.memo(({ logs, communityProfiles, savedIdentities }: {
 
       {isExpanded && (
         <div className="space-y-1.5 ml-2 animate-in fade-in slide-in-from-top-1 duration-200">
-          {logs
-            .filter(l => !l.message.includes('New note from') && 
+          {(() => {
+            const filtered = logs.filter(l => !l.message.includes('New note from') && 
                         !l.message.includes('New mention from') && 
-                        !l.message.includes('New reaction from'))
-            .map((log) => (
+                        !l.message.includes('New reaction from'));
+            
+            if (filtered.length === 0) {
+              return logs.map((log) => (
+                <div key={log.id} className="flex items-center gap-2 text-xs opacity-50">
+                  <div className="w-1.5 h-1.5 rounded-full bg-surface-container-high" />
+                  <LogItemContent 
+                    log={log} 
+                    communityProfiles={communityProfiles} 
+                    savedIdentities={savedIdentities}
+                    compact
+                  />
+                </div>
+              ));
+            }
+
+            return filtered.map((log) => (
               <div key={log.id} className="flex items-center gap-2 text-xs">
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/40" />
                 <LogItemContent 
@@ -251,7 +267,8 @@ const LogItemGroup = React.memo(({ logs, communityProfiles, savedIdentities }: {
                   compact
                 />
               </div>
-            ))}
+            ));
+          })()}
         </div>
       )}
     </div>

@@ -4,7 +4,7 @@ import { INITIAL_STATS, STORAGE_KEY_DEVICE_ID } from '../constants';
 
 type State = {
   logs: LogEntry[];
-  sessionStats: Record<string, { replies: number, reactions: number, reposts: number, proactive: number }>;
+  sessionStats: Record<string, BotStats>;
   identityStats: Record<string, BotStats>;
 };
 
@@ -35,16 +35,18 @@ function reducer(state: State, action: Action): State {
       const { id, update, deviceId } = action;
       
       // Update Session Stats
-      const currentSession = state.sessionStats[id] || { replies: 0, reactions: 0, reposts: 0, proactive: 0 };
-      const newSessionStats = {
-        ...state.sessionStats,
-        [id]: {
-          replies: currentSession.replies + (update.repliesSent || 0),
-          reactions: currentSession.reactions + (update.reactionsSent || 0),
-          reposts: currentSession.reposts + (update.repostsSent || 0),
-          proactive: currentSession.proactive + (update.proactiveNotesSent || 0)
-        }
-      };
+      const currentSession = state.sessionStats[id] || { ...INITIAL_STATS };
+      const newSessionStats = { ...state.sessionStats };
+      const updatedSession = { ...currentSession };
+
+      Object.entries(update).forEach(([key, value]) => {
+        const k = key as keyof BotStats;
+        const currentMap = { ...(updatedSession[k] || {}) };
+        currentMap[deviceId] = (currentMap[deviceId] || 0) + (value || 0);
+        updatedSession[k] = currentMap;
+      });
+
+      newSessionStats[id] = updatedSession;
 
       // Update Identity Stats (All-time)
       const currentStats = state.identityStats[id] || { ...INITIAL_STATS };
