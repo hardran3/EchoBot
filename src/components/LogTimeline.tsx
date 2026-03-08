@@ -30,9 +30,13 @@ export const LogTimeline = React.memo(({
     const groupsMap = new Map<string, LogEntry[]>();
     const standaloneLogs: LogEntry[] = [];
 
-    // filteredLogs is sorted by timestamp (newest first)
+    // Engagement actions that should be grouped if they share a targetEventId
+    const GROUPABLE_ACTIONS = ['Replied:', 'Reacted with', 'Reposted note'];
+
     filteredLogs.forEach((log) => {
-      if (log.targetEventId) {
+      const isGroupable = GROUPABLE_ACTIONS.some(action => log.message.includes(action));
+      
+      if (log.targetEventId && isGroupable) {
         const group = groupsMap.get(log.targetEventId) || [];
         group.push(log);
         groupsMap.set(log.targetEventId, group);

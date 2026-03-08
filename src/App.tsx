@@ -1726,7 +1726,7 @@ export default function App() {
       const delay = Math.floor(Math.random() * (settings.maxDelay - settings.minDelay + 1) + settings.minDelay);
       
       if (isVerbose) {
-        addLog(`Waiting ${delay}s before: ${task.description}`, 'info');
+        addLog(`Waiting ${delay}s before: ${task.description}`, 'success', undefined, undefined, undefined, undefined, undefined, undefined, task.botId);
       }
 
       // Create a promise that resolves after the delay
@@ -1741,7 +1741,7 @@ export default function App() {
       try {
         await task.execute();
       } catch (e) {
-        addLog(`Error executing task: ${task.description}`, 'error');
+        addLog(`Error executing task: ${task.description}`, 'error', undefined, undefined, undefined, undefined, undefined, undefined, task.botId);
       }
 
       // Remove the task we just executed
@@ -1909,7 +1909,7 @@ export default function App() {
 
     setRunningIdentityIds(prev => new Set(prev).add(identity.id));
     addStatToBatch(identity.id, { repliesSent: 0 }); // Initialize session entry
-    addLog(`Starting bot: ${identity.name}${isProactiveOnly ? ' (Proactive Only)' : ` (Monitoring ${targetHexes.length} targets)`}`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
+    addLog(`Starting bot: ${identity.name}${isProactiveOnly ? ' (Proactive Only)' : ` (Monitoring ${targetHexes.length} targets)`}`, 'success', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
 
     if (!poolRef.current) {
       poolRef.current = new SimplePool();
@@ -1919,7 +1919,7 @@ export default function App() {
     let targetRelays = identity.settings.relays?.length ? identity.settings.relays : [...PUBLISH_RELAYS];
 
     if (targetHexes.length > 0) {
-      addLog(`Discovering relays for ${identity.name} targets...`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
+      addLog(`Discovering relays for ${identity.name} targets...`, 'info', undefined, identity.name);
       
       // Use the first target for relay discovery (best effort)
       const primaryTarget = targetHexes[0];
@@ -1947,7 +1947,7 @@ export default function App() {
               const profileRelays = Object.keys(content.relays);
               if (profileRelays.length > 0) {
                 targetRelays = [...new Set([...profileRelays, ...PUBLISH_RELAYS])];
-                addLog(`Found ${profileRelays.length} relays for ${identity.name} via profile.`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
+                addLog(`Found ${profileRelays.length} relays for ${identity.name} via profile.`, 'info', undefined, identity.name);
               }
             }
           } catch (e) {}
@@ -1965,11 +1965,11 @@ export default function App() {
             .map(t => t[1]);
           if (relays.length > 0) {
             targetRelays = [...new Set([...relays, ...targetRelays])];
-            addLog(`Updated relays for ${identity.name} via NIP-65.`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
+            addLog(`Updated relays for ${identity.name} via NIP-65.`, 'info', undefined, identity.name);
           }
         }
       } catch (e) {
-        addLog(`Profile/Relay discovery failed for ${identity.name}, using defaults.`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
+        addLog(`Profile/Relay discovery failed for ${identity.name}, using defaults.`, 'info', undefined, identity.name);
       }
     }
 
@@ -2303,7 +2303,6 @@ export default function App() {
     const newSubs = [subMentions];
     if (subTarget) newSubs.push(subTarget);
     subscriptionsRef.current.set(identity.id, [...currentSubs, ...newSubs]);
-    addLog(`[${identity.name}] Real-time monitoring active.`, 'info', undefined, identity.name);
   };
 
   const scheduleProactivePost = async (id: string) => {
@@ -3087,7 +3086,7 @@ export default function App() {
             <div className="flex-1 flex flex-col min-h-0">
               {rightTab === 'timeline' ? (
                 <LogTimeline 
-                  logs={logs.filter(l => !activeIdentityId || l.botId === activeIdentityId)}
+                  logs={logs}
                   isVerbose={false}
                   setIsVerbose={() => {}}
                   onClear={clearLogs}
