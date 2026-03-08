@@ -30,11 +30,14 @@ export const LogTimeline = React.memo(({
     const groupsMap = new Map<string, LogEntry[]>();
     const standaloneLogs: LogEntry[] = [];
 
-    // Engagement actions that should be grouped if they share a targetEventId
-    const GROUPABLE_ACTIONS = ['Replied:', 'Reacted with', 'Reposted note'];
+    // All events related to a specific target note should be groupable
+    const DETECTION_PHRASES = ['New note from', 'New note matching', 'New mention from', 'New reaction from'];
+    const ACTION_PHRASES = ['Replied:', 'Reacted with', 'Reposted note'];
 
     filteredLogs.forEach((log) => {
-      const isGroupable = GROUPABLE_ACTIONS.some(action => log.message.includes(action));
+      const isDetection = DETECTION_PHRASES.some(p => log.message.includes(p));
+      const isAction = ACTION_PHRASES.some(p => log.message.includes(p));
+      const isGroupable = isDetection || isAction;
       
       if (log.targetEventId && isGroupable) {
         const group = groupsMap.get(log.targetEventId) || [];
@@ -142,9 +145,12 @@ const LogItemGroup = React.memo(({ logs, communityProfiles, savedIdentities }: {
 }) => {
   const [isExpanded, setIsExpanded] = React.useState(false);
   
-  const { uniqueBotCount, botAvatars, actionCount } = useMemo(() => {
+  const { uniqueBotCount, botAvatars, actionCount, actionLogs } = useMemo(() => {
     const bots = new Map<string, { id?: string, name?: string }>();
-    let actions = 0;
+    const actions: LogEntry[] = [];
+
+    // Engagement actions that should be explicitly shown
+    const ACTION_PHRASES = ['Replied:', 'Reacted with', 'Reposted', 'Followed back', 'Posted original note:'];
 
     logs.forEach(l => {
       const key = l.botId || l.botName || 'unknown';
@@ -152,21 +158,17 @@ const LogItemGroup = React.memo(({ logs, communityProfiles, savedIdentities }: {
         bots.set(key, { id: l.botId, name: l.botName });
       }
 
-      // Only count actual activities as actions
-      const isAction = l.message.includes('Replied:') || 
-                      l.message.includes('Reacted with') || 
-                      l.message.includes('Reposted') ||
-                      l.message.includes('Followed back') ||
-                      l.message.includes('Posted original note:');
+      const isAction = ACTION_PHRASES.some(p => l.message.includes(p));
       if (isAction) {
-        actions++;
+        actions.push(l);
       }
     });
 
     return {
       uniqueBotCount: bots.size,
       botAvatars: Array.from(bots.values()),
-      actionCount: actions
+      actionCount: actions.length,
+      actionLogs: actions
     };
   }, [logs]);
 
@@ -198,25 +200,27 @@ const LogItemGroup = React.memo(({ logs, communityProfiles, savedIdentities }: {
           </div>
           <div className="flex items-center gap-1.5 ml-1">
             <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500/80">
-              {uniqueBotCount} Bot{uniqueBotCount !== 1 ? 's' : ''}
+              {uniqueBotCount} Monitoring
             </span>
             {actionCount > 0 && (
               <>
                 <span className="text-[10px] text-on-surface-variant/40">•</span>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/60">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-white bg-emerald-500/20 px-1 rounded-xs">
                   {actionCount} Action{actionCount !== 1 ? 's' : ''}
                 </span>
               </>
             )}
           </div>
         </div>
-        <button 
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="text-[10px] font-black uppercase tracking-tighter text-on-surface-variant hover:text-emerald-500 transition-colors flex items-center gap-1 bg-surface-container-high px-1.5 py-0.5 rounded-sm border border-outline/10 shadow-sm"
-        >
-          {isExpanded ? 'Hide' : 'Show'} Details
-          <Activity className={cn("w-3 h-3 transition-transform", isExpanded ? "rotate-180" : "")} />
-        </button>
+        {actionCount > 0 && (
+          <button 
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="text-[10px] font-black uppercase tracking-tighter text-on-surface-variant hover:text-emerald-500 transition-colors flex items-center gap-1 bg-surface-container-high px-1.5 py-0.5 rounded-sm border border-outline/10 shadow-sm"
+          >
+            {isExpanded ? 'Hide' : 'Show'} Actions
+            <Activity className={cn("w-3 h-3 transition-transform", isExpanded ? "rotate-180" : "")} />
+          </button>
+        )}
       </div>
 
       {firstLog.contextContent && (
@@ -240,39 +244,19 @@ const LogItemGroup = React.memo(({ logs, communityProfiles, savedIdentities }: {
         </div>
       )}
 
-      {isExpanded && (
+      {isExpanded && actionLogs.length > 0 && (
         <div className="space-y-1.5 ml-2 animate-in fade-in slide-in-from-top-1 duration-200">
-          {(() => {
-            const filtered = logs.filter(l => !l.message.includes('New note from') && 
-                        !l.message.includes('New mention from') && 
-                        !l.message.includes('New reaction from'));
-            
-            if (filtered.length === 0) {
-              return logs.map((log) => (
-                <div key={log.id} className="flex items-center gap-2 text-xs opacity-50">
-                  <div className="w-1.5 h-1.5 rounded-full bg-surface-container-high" />
-                  <LogItemContent 
-                    log={log} 
-                    communityProfiles={communityProfiles} 
-                    savedIdentities={savedIdentities}
-                    compact
-                  />
-                </div>
-              ));
-            }
-
-            return filtered.map((log) => (
-              <div key={log.id} className="flex items-center gap-2 text-xs">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/40" />
-                <LogItemContent 
-                  log={log} 
-                  communityProfiles={communityProfiles} 
-                  savedIdentities={savedIdentities}
-                  compact
-                />
-              </div>
-            ));
-          })()}
+          {actionLogs.map((log) => (
+            <div key={log.id} className="flex items-center gap-2 text-xs">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/40" />
+              <LogItemContent 
+                log={log} 
+                communityProfiles={communityProfiles} 
+                savedIdentities={savedIdentities}
+                compact
+              />
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -286,15 +270,21 @@ const LogItemContent = ({ log, communityProfiles, savedIdentities, compact = fal
   compact?: boolean
 }) => {
   const renderMessage = (message: string) => {
+    // If compact, strip the [BotName] prefix as it's already in the header
+    let displayMessage = message;
+    if (compact) {
+      displayMessage = message.replace(/^\[[^\]]+\]\s*/, '');
+    }
+
     // 1. Bot Name Parsing: [BotName]
     const botRegex = /\[([^\]]+)\]/g;
     // 2. Nostr Regex: hex pubkeys (64 chars) and npubs (starts with npub1)
     const nostrRegex = /(npub1[a-z0-9]{58}|[a-f0-9]{64})/gi;
     
     // Combine splitting for both
-    const parts = message.split(/(\[[^\]]+\]|npub1[a-z0-9]{58}|[a-f0-9]{64})/gi);
+    const parts = displayMessage.split(/(\[[^\]]+\]|npub1[a-z0-9]{58}|[a-f0-9]{64})/gi);
     
-    if (parts.length === 1) return message;
+    if (parts.length === 1) return displayMessage;
 
     return parts.map((part, i) => {
       // Match [BotName]

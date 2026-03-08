@@ -2141,32 +2141,37 @@ export default function App() {
       if (processedEventsRef.current.has(eventKey)) return;
       processedEventsRef.current.add(eventKey);
 
-      // Received stats
+      // Triggers
       const mentionsSelf = event.tags.some((t: any) => t[0] === 'p' && t[1] === pk);
       const isTargetAuthor = targetHexes.includes(event.pubkey);
       const matchesHashtag = event.tags.some((t: any) => t[0] === 't' && hashtags.includes(t[1].toLowerCase()));
       const matchesKeyword = keywords.some(kw => event.content.toLowerCase().includes(kw));
 
-      if (mentionsSelf) {
-        if (event.kind === 1) {
-          addLog(`[${identity.name}] New mention from ${nip19.npubEncode(event.pubkey)}`, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
-          addStatToBatch(identity.id, { repliesReceived: 1 });
+      // 1. Identify Primary Reason for interest (Priority: Author > Mention > Hashtag > Keyword)
+      let observationLog = '';
+      let isPrimaryTrigger = false; // Primary triggers (npub) bypass probability check
+
+      if (isTargetAuthor) {
+        observationLog = `[${identity.name}] New note from ${nip19.npubEncode(event.pubkey)}`;
+        isPrimaryTrigger = true;
+      } else if (mentionsSelf) {
+        if (event.kind === 1) observationLog = `[${identity.name}] New mention from ${nip19.npubEncode(event.pubkey)}`;
+        if (event.kind === 7) observationLog = `[${identity.name}] New reaction from ${nip19.npubEncode(event.pubkey)}`;
+      } else if (matchesHashtag) {
+        observationLog = `[${identity.name}] New note matching hashtag`;
+      } else if (matchesKeyword) {
+        observationLog = `[${identity.name}] New note matching keyword`;
+      }
+
+      // 2. Logging & Stats
+      if (observationLog) {
+        addLog(observationLog, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
+        
+        if (mentionsSelf) {
+          addStatToBatch(identity.id, event.kind === 1 ? { repliesReceived: 1 } : { reactionsReceived: 1 });
           if (identity.settings.autoFollowBack) {
             setPlannedCounts(prev => ({ ...prev, [identity.id]: (prev[identity.id] || 0) + 1 }));
-            const delay = 60 + Math.random() * 840; // 1-15 minutes
-            const timeout = setTimeout(() => {
-              setPlannedCounts(prev => ({ ...prev, [identity.id]: Math.max(0, (prev[identity.id] || 0) - 1) }));
-              addTaskToQueue(getFollowTask(event.pubkey, targetRelays));
-            }, delay * 1000);
-            timeoutRefs.current.push(timeout);
-          }
-        }
-        if (event.kind === 7) {
-          addLog(`[${identity.name}] New reaction from ${nip19.npubEncode(event.pubkey)}`, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
-          addStatToBatch(identity.id, { reactionsReceived: 1 });
-          if (identity.settings.autoFollowBack) {
-            setPlannedCounts(prev => ({ ...prev, [identity.id]: (prev[identity.id] || 0) + 1 }));
-            const delay = 60 + Math.random() * 840; // 1-15 minutes
+            const delay = 60 + Math.random() * 840; 
             const timeout = setTimeout(() => {
               setPlannedCounts(prev => ({ ...prev, [identity.id]: Math.max(0, (prev[identity.id] || 0) - 1) }));
               addTaskToQueue(getFollowTask(event.pubkey, targetRelays));
@@ -2178,79 +2183,53 @@ export default function App() {
 
       if (event.kind === 7) return;
 
+      // 3. Interaction Logic
       const interactionTasks: BotTask[] = [];
+      const canReplyToMentions = mentionsSelf && identity.settings.proactive?.replyToMentions;
+      
+      if (isTargetAuthor || matchesHashtag || matchesKeyword || canReplyToMentions) {
+        // Bot-to-bot protection
+        const isAnotherBot = savedIdentities.some(id => {
+          try {
+            const { data } = nip19.decode(id.nsec);
+            return getPublicKey(data as any) === event.pubkey;
+          } catch (e) { return false; }
+        });
+        if (isAnotherBot) return;
 
-      if (mentionsSelf && !isTargetAuthor) {
-        // Only reply to mentions if enabled
-        if (identity.settings.proactive?.replyToMentions) {
-          // Bot-to-bot protection: check if sender is another one of our bots
-          const isAnotherBot = savedIdentities.some(id => {
-            try {
-              const { data } = nip19.decode(id.nsec);
-              return getPublicKey(data as any) === event.pubkey;
-            } catch (e) { return false; }
-          });
-          if (isAnotherBot) return;
+        // Polite Mode Logic: Only skip observations, never direct mentions or primary targets
+        if ((matchesHashtag || matchesKeyword) && !mentionsSelf && !isTargetAuthor) {
+          const isPolite = identity.settings.politeMode || globalPoliteMode;
+          const isReply = event.tags.some((t: any) => t[0] === 'e');
+          if (isPolite && isReply) return;
+        }
 
-          // Probability check
-          const prob = identity.settings.proactive?.replyProbability ?? 0.5;
-          if (Math.random() < prob) {
-            interactionTasks.push(getReplyTask(event, targetRelays));
-            
-            if (identity.settings.reactToNotes) {
-              const allEmojis: string[] = [];
-              if (identity.settings.reactionEmojis) {
-                const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-                const customEmojis = [...segmenter.segment(identity.settings.reactionEmojis.trim())].map(s => s.segment).filter(c => c.trim() !== '');
-                allEmojis.push(...customEmojis);
-              }
-              if (allEmojis.length > 0) {
-                const emoji = allEmojis[Math.floor(Math.random() * allEmojis.length)];
-                interactionTasks.push(getReactionTask(event, targetRelays, emoji));
-              }
+        // Probability: 100% for target authors, configured probability for everything else
+        const probability = isPrimaryTrigger ? 1.0 : (identity.settings.proactive?.replyProbability ?? 0.5);
+
+        if (Math.random() < probability) {
+          interactionTasks.push(getReplyTask(event, targetRelays));
+
+          if (identity.settings.reactToNotes) {
+            const allEmojis: string[] = [];
+            if (identity.settings.reactionEmojis) {
+              const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+              const customEmojis = [...segmenter.segment(identity.settings.reactionEmojis.trim())].map(s => s.segment).filter(c => c.trim() !== '');
+              allEmojis.push(...customEmojis);
+            }
+            if (allEmojis.length > 0) {
+              const emoji = allEmojis[Math.floor(Math.random() * allEmojis.length)];
+              interactionTasks.push(getReactionTask(event, targetRelays, emoji));
             }
           }
-        }
-      } else if (isTargetAuthor || matchesHashtag || matchesKeyword) {
-        // Polite Mode Logic: If enabled, only interact with root notes (no 'e' tags)
-        // Direct mentions (mentionsSelf) already handled above and override polite mode.
-        const isPolite = identity.settings.politeMode || globalPoliteMode;
-        const isReply = event.tags.some((t: any) => t[0] === 'e');
-        
-        if (isPolite && isReply) {
-          // Skip: Polite bots don't butt into threads unless mentioned
-          return;
-        }
 
-        const senderNpub = nip19.npubEncode(event.pubkey);
-        let logMsg = `[${identity.name}] New note from ${senderNpub}`;
-        if (matchesHashtag) logMsg = `[${identity.name}] New note matching hashtag`;
-        if (matchesKeyword) logMsg = `[${identity.name}] New note matching keyword`;
-
-        addLog(logMsg, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
-        
-        interactionTasks.push(getReplyTask(event, targetRelays));
-
-        if (identity.settings.reactToNotes) {
-          const allEmojis: string[] = [];
-          if (identity.settings.reactionEmojis) {
-            const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-            const customEmojis = [...segmenter.segment(identity.settings.reactionEmojis.trim())].map(s => s.segment).filter(c => c.trim() !== '');
-            allEmojis.push(...customEmojis);
-          }
-          if (allEmojis.length > 0) {
-            const emoji = allEmojis[Math.floor(Math.random() * allEmojis.length)];
-            interactionTasks.push(getReactionTask(event, targetRelays, emoji));
-          }
-        }
-
-        if (identity.settings.repostNotes) {
-          // 1. Only repost top-level notes (no 'e' tags)
-          const hasETags = event.tags?.some((t: string[]) => t[0] === 'e');
-          if (!hasETags) {
-            const chance = identity.settings.repostChance ?? 0.25;
-            if (Math.random() < chance) {
-              interactionTasks.push(getRepostTask(event, targetRelays));
+          if (identity.settings.repostNotes && isPrimaryTrigger) {
+            const hasETags = event.tags?.some((t: string[]) => t[0] === 'e');
+            if (!hasETags) {
+              const chance = identity.settings.repostChance ?? 0.25;
+              if (Math.random() < chance) {
+                interactionTasks.push(getRepostTask(event, targetRelays));
+              }
             }
           }
         }
