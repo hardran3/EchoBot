@@ -2287,7 +2287,7 @@ export default function App() {
 
     let subTarget: any = null;
     if (monitorFilters.length > 0) {
-      subTarget = poolRef.current.subscribeMany(targetRelays, monitorFilters, { onevent: eventHandler });
+      subTarget = poolRef.current.subscribeMany(targetRelays, ...monitorFilters, { onevent: eventHandler });
     }
 
     // Subscribe to mentions
