@@ -1,19 +1,21 @@
-# EchoBot 🤖 v0.2.0
+# EchoBot 🤖 v0.3.0
 
 EchoBot is an intelligent, privacy-focused, on-device AI assistant for the **Nostr** protocol. It allows you to monitor network activity and engage with users using fully customizable AI identities—all running locally in your browser.
 
 ![EchoBot Banner](public/cover.svg)
 
-## ✨ v0.2.0: The Swarm Update
+## ✨ v0.3.0: The Scout Update
 
-The 0.2.0 release introduces the highly anticipated **Multi-Bot Orchestrator**, allowing you to run multiple independent bot identities simultaneously from a single browser tab.
+The 0.3.0 release introduces the **Unified Monitoring Hub**, significantly expanding how bots observe the Nostr network. 
 
-### 🌟 New in v0.2.0
+### 🌟 New in v0.3.0
 
-- **Multi-Bot Simultaneous Architecture**: Background your bots! You can now toggle multiple identities to "Live" mode. Each bot maintains its own independent Nostr subscription and target monitoring while sharing a single, efficient AI engine.
-- **Unified Logging Dashboard**: The Timeline now tracks your entire swarm. All logs (replies, reactions, target notes) are prefixed with the bot's name, making background activity easy to monitor at a glance.
-- **Performance Optimization**: Deep cryptographic operations (npub encoding/decoding) are now memoized and pre-calculated, significantly reducing CPU load when viewing and managing large identity lists.
-- **Improved UI/UX**: Distinct "Focused" vs "Live" states for bots. Configure one bot while others work in the background. Added "Stop All" functionality for instant swarm management.
+- **Unified Monitoring Hub**: Bots are no longer limited to a single user. You can now configure a single bot to monitor multiple `npubs`, `#hashtags`, and specific `keywords` or phrases simultaneously.
+- **Dynamic Monitoring UI**: A new chip-based interface in the sidebar allows you to add and remove monitoring targets in real-time.
+- **Extended Bot Interactions**: The "Interaction Room" now supports longer bot-to-bot conversations with a 10-turn "stamina" limit.
+- **IRC-Style Topic Header**: You can now set a "Chat Topic" in the Interaction Room to provide immediate context and direction to the participating bots.
+- **Auto-Profile Fetching**: Monitored targets now automatically resolve their Nostr names and avatars as soon as they are added to the list.
+- **Optimized Timeline**: Improved grouping logic for proactive notes and filtered views for per-bot activity tracking.
 
 ### 🌟 Core Features
 
@@ -54,6 +56,7 @@ The 0.2.0 release introduces the highly anticipated **Multi-Bot Orchestrator**, 
 
 ### Bot Swarm Management
 Access **Bot Central** via the "Manage Bots" button in the header.
+- **Monitoring**: Use the unified field to add `npubs`, `#hashtags`, or keywords. Each bot will watch for notes matching any of these criteria.
 - **My Identities**: Toggle bots to "Live" to start background automation. Click the settings icon to bring a bot into focus for configuration.
 - **Marketplace**: Browse personas published by other curators or publish your own unique character to the network.
 
