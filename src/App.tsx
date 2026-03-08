@@ -180,6 +180,7 @@ export default function App() {
   const [showEmojiPickerDialog, setShowEmojiPickerDialog] = useState(false);
   const [emojiSearchQuery, setEmojiSearchQuery] = useState('');
   const [swarmSearchQuery, setSwarmSearchQuery] = useState('');
+  const [newTargetInput, setNewTargetInput] = useState('');
   const [savedIdentities, setSavedIdentities] = useState<Identity[]>([]);
   const [activeIdentityId, setActiveIdentityId] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<'dashboard' | 'manager' | 'settings'>('dashboard');
@@ -880,16 +881,33 @@ export default function App() {
     } catch (e) {}
   }, [communityProfiles]);
 
-  // Auto-fetch profiles for logs
+  // Auto-fetch profiles for logs and monitored targets
   useEffect(() => {
     const logPubkeys = logs
       .map(l => l.pubkey)
       .filter((pk): pk is string => !!pk && !communityProfiles[pk]);
     
-    if (logPubkeys.length > 0) {
-      fetchProfiles([...new Set(logPubkeys)]);
+    // Also fetch for monitored targets in all bots
+    const targetPubkeys: string[] = [];
+    savedIdentities.forEach(identity => {
+      if (identity.settings.targetNpub) {
+        identity.settings.targetNpub.split(',').forEach(npub => {
+          try {
+            const decoded = nip19.decode(npub.trim()) as any;
+            if (decoded.type === 'npub' && !communityProfiles[decoded.data]) {
+              targetPubkeys.push(decoded.data);
+            }
+          } catch (e) {}
+        });
+      }
+    });
+
+    const toFetch = [...new Set([...logPubkeys, ...targetPubkeys])];
+    
+    if (toFetch.length > 0) {
+      fetchProfiles(toFetch);
     }
-  }, [logs, communityProfiles, fetchProfiles]);
+  }, [logs, communityProfiles, savedIdentities, fetchProfiles]);
 
   const handleLogout = () => {
     if (window.confirm('Logging out will clear ALL local data, bots, and settings from this device. Are you sure?')) {
@@ -1861,21 +1879,25 @@ export default function App() {
     const isProactiveOnly = !identity.settings.targetNpub && identity.settings.proactive?.enabled;
     
     if (!identity.settings.targetNpub && !isProactiveOnly) {
-      addLog(`Please enter a target npub for ${identity.name}.`, 'error');
+      addLog(`Please enter at least one target npub for ${identity.name}.`, 'error');
       return;
     }
 
-    let targetHex = '';
+    const targetHexes: string[] = [];
     if (identity.settings.targetNpub) {
-      try {
-        const decoded = nip19.decode(identity.settings.targetNpub) as any;
-        if (decoded.type === 'npub') {
-          targetHex = decoded.data;
-        } else {
-          throw new Error('Not an npub');
+      const npubs = identity.settings.targetNpub.split(',').map(s => s.trim()).filter(s => s.length > 0);
+      for (const npub of npubs) {
+        try {
+          const decoded = nip19.decode(npub) as any;
+          if (decoded.type === 'npub') {
+            targetHexes.push(decoded.data);
+          }
+        } catch (e) {
+          addLog(`Invalid target npub "${npub}" for ${identity.name}. Skipping.`, 'warning');
         }
-      } catch (e) {
-        addLog(`Invalid target npub for ${identity.name}.`, 'error');
+      }
+      if (targetHexes.length === 0 && !isProactiveOnly) {
+        addLog(`No valid target npubs for ${identity.name}.`, 'error');
         return;
       }
     }
@@ -1885,7 +1907,7 @@ export default function App() {
 
     setRunningIdentityIds(prev => new Set(prev).add(identity.id));
     addStatToBatch(identity.id, { repliesSent: 0 }); // Initialize session entry
-    addLog(`Starting bot: ${identity.name}${isProactiveOnly ? ' (Proactive Only)' : ''}`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
+    addLog(`Starting bot: ${identity.name}${isProactiveOnly ? ' (Proactive Only)' : ` (Monitoring ${targetHexes.length} targets)`}`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
 
     if (!poolRef.current) {
       poolRef.current = new SimplePool();
@@ -1894,12 +1916,15 @@ export default function App() {
     // 1. Discover target's outbox relays (NIP-65 or Profile)
     let targetRelays = identity.settings.relays?.length ? identity.settings.relays : [...PUBLISH_RELAYS];
 
-    if (targetHex) {
-      addLog(`Discovering relays for ${identity.name}...`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
+    if (targetHexes.length > 0) {
+      addLog(`Discovering relays for ${identity.name} targets...`, 'info', undefined, identity.name, undefined, undefined, undefined, undefined, identity.id);
+      
+      // Use the first target for relay discovery (best effort)
+      const primaryTarget = targetHexes[0];
       try {
         const profileEvent = await poolRef.current.get(SEARCH_RELAYS, {
           kinds: [0],
-          authors: [targetHex]
+          authors: [primaryTarget]
         });
 
         if (profileEvent) {
@@ -1908,7 +1933,7 @@ export default function App() {
             // Cache the profile for UI visibility
             setCommunityProfiles(prev => ({
               ...prev,
-              [targetHex]: {
+              [primaryTarget]: {
                 name: content.name || content.display_name || '',
                 about: content.about || '',
                 picture: content.picture || '',
@@ -1929,7 +1954,7 @@ export default function App() {
         // Check NIP-65 too for most accurate relay list
         const nip65Event = await poolRef.current.get(SEARCH_RELAYS, {
           kinds: [10002],
-          authors: [targetHex]
+          authors: [primaryTarget]
         });
 
         if (nip65Event) {
@@ -2145,7 +2170,7 @@ export default function App() {
 
       const interactionTasks: BotTask[] = [];
 
-      if (mentionsSelf && event.pubkey !== targetHex) {
+      if (mentionsSelf && !targetHexes.includes(event.pubkey)) {
         // Only reply to mentions if enabled
         if (identity.settings.proactive?.replyToMentions) {
           // Bot-to-bot protection: check if sender is another one of our bots
@@ -2176,7 +2201,7 @@ export default function App() {
             }
           }
         }
-      } else if (event.pubkey === targetHex) {
+      } else if (targetHexes.includes(event.pubkey)) {
         // Polite Mode Logic: If enabled, only interact with root notes (no 'e' tags)
         // Direct mentions (mentionsSelf) already handled above and override polite mode.
         const isPolite = identity.settings.politeMode || globalPoliteMode;
@@ -2187,8 +2212,8 @@ export default function App() {
           return;
         }
 
-        const targetNpub = nip19.npubEncode(event.pubkey);
-        addLog(`[${identity.name}] New note from ${targetNpub}`, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
+        const senderNpub = nip19.npubEncode(event.pubkey);
+        addLog(`[${identity.name}] New note from ${senderNpub}`, 'success', event.pubkey, identity.name, undefined, undefined, event.content, event.pubkey, identity.id, event.id);
         
         interactionTasks.push(getReplyTask(event, targetRelays));
 
@@ -2233,13 +2258,13 @@ export default function App() {
 
     const now = Math.floor(Date.now() / 1000);
     
-    // Subscribe to target notes (only if target exists)
+    // Subscribe to target notes (only if targets exist)
     let subTarget: any = null;
-    if (targetHex) {
+    if (targetHexes.length > 0) {
       subTarget = poolRef.current.subscribeMany(targetRelays, 
         {
           kinds: [1],
-          authors: [targetHex],
+          authors: targetHexes,
           since: now
         }, { onevent: eventHandler });
     }
@@ -2707,66 +2732,105 @@ export default function App() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-on-surface-variant">
                 <Target className="w-4 h-4 text-emerald-500" />
-                <h2 className="text-xs font-bold uppercase tracking-widest">Monitoring Target</h2>
+                <h2 className="text-xs font-bold uppercase tracking-widest">Monitoring Targets</h2>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              {settings.targetNpub ? (
-                <div className="flex-1 flex items-center gap-2 p-1 bg-surface border border-outline/20 rounded-sm group/pill relative pr-8 min-h-[36px]">
-                  {(() => {
-                    let pk = '';
-                    try {
-                      const decoded = nip19.decode(settings.targetNpub) as any;
-                      if (decoded.type === 'npub') pk = decoded.data;
-                    } catch (e) {}
-                    const profile = communityProfiles[pk];
-                    return (
-                      <>
-                        <img 
-                          src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${pk || settings.targetNpub}`} 
-                          alt="" 
-                          className="w-6 h-6 rounded-sm bg-surface-container-high border border-outline/10 object-cover"
-                          crossOrigin="anonymous"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[11px] font-bold text-on-surface truncate leading-tight">
-                            {profile?.name || settings.targetName || 'Loading...'}
-                          </div>
-                          <div className="text-[9px] text-on-surface-variant font-mono truncate leading-none opacity-60">
-                            {settings.targetNpub.substring(0, 16)}...
-                          </div>
-                        </div>
-                        <button 
-                          onClick={() => setSettings(s => ({ ...s, targetNpub: '', targetName: '' }))}
-                          disabled={activeIdentityId ? isRunning(activeIdentityId) : false}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 p-1 hover:bg-red-500/10 text-on-surface-variant hover:text-red-400 rounded-sm transition-all disabled:opacity-0"
-                          title="Remove Target"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </>
-                    );
-                  })()}
+            <div className="flex flex-col gap-3">
+              {/* Add Target Input */}
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input 
+                    type="text"
+                    placeholder="Enter target npub..."
+                    value={newTargetInput}
+                    onChange={(e) => setNewTargetInput(e.target.value)}
+                    disabled={activeIdentityId ? isRunning(activeIdentityId) : false}
+                    className="w-full bg-surface border border-outline/20 rounded-sm px-2 py-1.5 text-[11px] focus:outline-none focus:border-emerald-500/50 transition-colors disabled:opacity-50 font-mono"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newTargetInput.trim()) {
+                        const current = settings.targetNpub ? settings.targetNpub.split(',').map(s => s.trim()) : [];
+                        if (!current.includes(newTargetInput.trim())) {
+                          setSettings(s => ({ ...s, targetNpub: [...current, newTargetInput.trim()].join(', ') }));
+                        }
+                        setNewTargetInput('');
+                      }
+                    }}
+                  />
                 </div>
-              ) : (
-                <input 
-                  type="text"
-                  placeholder="Target npub..."
-                  value={settings.targetNpub}
-                  onChange={(e) => setSettings(s => ({ ...s, targetNpub: e.target.value }))}
-                  disabled={activeIdentityId ? isRunning(activeIdentityId) : false}
-                  className="flex-1 bg-surface border border-outline/20 rounded-sm px-2 py-1.5 text-xs focus:outline-none focus:border-emerald-500/50 transition-colors disabled:opacity-50 font-mono h-[36px]"
-                />
-              )}
+                <button 
+                  onClick={() => {
+                    if (newTargetInput.trim()) {
+                      const current = settings.targetNpub ? settings.targetNpub.split(',').map(s => s.trim()) : [];
+                      if (!current.includes(newTargetInput.trim())) {
+                        setSettings(s => ({ ...s, targetNpub: [...current, newTargetInput.trim()].join(', ') }));
+                      }
+                      setNewTargetInput('');
+                    }
+                  }}
+                  disabled={(activeIdentityId ? isRunning(activeIdentityId) : false) || !newTargetInput.trim()}
+                  className="px-3 bg-emerald-500 text-black rounded-sm text-[10px] font-black uppercase tracking-widest hover:bg-emerald-400 transition-all disabled:opacity-30 disabled:grayscale"
+                >
+                  Add
+                </button>
+              </div>
+
+              {/* Target Chips */}
+              <div className="flex flex-col gap-1.5 max-h-[200px] overflow-y-auto custom-scrollbar pr-1">
+                {settings.targetNpub.split(',').map(s => s.trim()).filter(s => s.length > 0).map((npub, idx) => {
+                  let pk = '';
+                  try {
+                    const decoded = nip19.decode(npub) as any;
+                    if (decoded.type === 'npub') pk = decoded.data;
+                  } catch (e) {}
+                  const profile = communityProfiles[pk];
+
+                  return (
+                    <div key={idx} className="flex items-center gap-2 p-1.5 bg-surface border border-outline/10 rounded-sm group/chip">
+                      <img 
+                        src={profile?.picture || `https://api.dicebear.com/7.x/identicon/svg?seed=${pk || npub}`} 
+                        alt="" 
+                        className="w-6 h-6 rounded-sm bg-surface-container-high border border-outline/10 object-cover"
+                        crossOrigin="anonymous"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[11px] font-bold text-on-surface truncate leading-tight">
+                          {profile?.name || (pk ? `${npub.substring(0, 8)}...` : 'Invalid Npub')}
+                        </div>
+                        <div className="text-[9px] text-on-surface-variant font-mono truncate leading-none opacity-50">
+                          {npub.substring(0, 16)}...
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          const current = settings.targetNpub.split(',').map(s => s.trim());
+                          const next = current.filter(n => n !== npub).join(', ');
+                          setSettings(s => ({ ...s, targetNpub: next }));
+                        }}
+                        disabled={activeIdentityId ? isRunning(activeIdentityId) : false}
+                        className="p-1 hover:bg-red-500/10 text-on-surface-variant/40 hover:text-red-400 rounded-sm transition-all disabled:opacity-0"
+                        title="Remove Target"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+                {!settings.targetNpub && (
+                  <div className="py-4 text-center opacity-20 italic text-[10px] font-bold uppercase tracking-widest">
+                    No targets selected
+                  </div>
+                )}
+              </div>
 
               {activeIdentityId && isRunning(activeIdentityId) ? (
                 <button 
                   onClick={() => stopBot(activeIdentityId)}
-                  className="shrink-0 w-9 h-[36px] flex items-center justify-center bg-red-500/10 text-red-400 border border-red-500/20 rounded-sm hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                  className="w-full h-[32px] flex items-center justify-center bg-red-500/10 text-red-400 border border-red-500/20 rounded-sm hover:bg-red-500 hover:text-white transition-all shadow-sm text-[11px] font-bold uppercase tracking-widest"
                   title="Stop Bot"
                 >
-                  <Square className="w-4 h-4 fill-current" />
+                  <Square className="w-3.5 h-3.5 fill-current mr-2" />
+                  Stop Bot
                 </button>
               ) : (
                 <button 
@@ -2786,7 +2850,7 @@ export default function App() {
                   }}
                   disabled={((settings.useAI && aiStatus !== 'ready') || !activeIdentityId) || (!settings.targetNpub && !settings.proactive?.enabled)}
                   className={cn(
-                    "shrink-0 w-9 h-[36px] flex items-center justify-center rounded-sm transition-all shadow-sm border",
+                    "w-full h-[32px] flex items-center justify-center rounded-sm transition-all shadow-sm border text-[11px] font-bold uppercase tracking-widest",
                     ((settings.useAI && aiStatus !== 'ready') || !activeIdentityId) || (!settings.targetNpub && !settings.proactive?.enabled)
                       ? "bg-surface-container-high text-on-surface-variant/40 border-outline/10 cursor-not-allowed"
                       : "bg-emerald-500 text-black border-emerald-500 hover:bg-emerald-400"
@@ -2794,10 +2858,11 @@ export default function App() {
                   title={settings.useAI && aiStatus !== 'ready' ? `Loading Brain ${Math.round(aiProgress)}%` : "Start Bot"}
                 >
                   {settings.useAI && aiStatus !== 'ready' ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin mr-2" />
                   ) : (
-                    <Play className="w-4 h-4 fill-current" />
+                    <Play className="w-3.5 h-3.5 fill-current mr-2" />
                   )}
+                  {settings.useAI && aiStatus !== 'ready' ? 'Loading Brain...' : 'Start Bot'}
                 </button>
               )}
             </div>
