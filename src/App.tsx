@@ -600,6 +600,15 @@ export default function App() {
         let needsMigration = false;
         const migrated = loadedIdentities.map(id => {
           let updated = { ...id };
+          
+          // --- Validation for Supported Models ---
+          if (!SUPPORTED_MODELS.find(m => m.id === updated.settings.modelId)) {
+            updated.settings.modelId = SUPPORTED_MODELS[0].id;
+            // Also reset prompts if we switch models
+            updated.settings.aiSystemPrompt = MODEL_DEFAULT_PROMPTS[SUPPORTED_MODELS[0].id].neutral;
+            needsMigration = true;
+          }
+
           // Initialize updatedAt if missing
           if (!updated.updatedAt) {
             updated.updatedAt = updated.createdAt || Date.now();
@@ -691,6 +700,13 @@ export default function App() {
     if (session) {
       try {
         const parsed = JSON.parse(session);
+        
+        // --- Validation for Supported Models ---
+        if (!SUPPORTED_MODELS.find(m => m.id === parsed.settings.modelId)) {
+          parsed.settings.modelId = SUPPORTED_MODELS[0].id;
+          parsed.settings.aiSystemPrompt = MODEL_DEFAULT_PROMPTS[SUPPORTED_MODELS[0].id].neutral;
+        }
+
         setSettings(parsed.settings);
         
         // Load keys
