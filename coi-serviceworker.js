@@ -1,5 +1,5 @@
-/*! coi-serviceworker v0.2.3 | MIT License | https://github.com/gzuidhof/coi-serviceworker */
-if (typeof window === 'undefined') {
+/*! coi-serviceworker v0.1.7 - MIT License - https://github.com/gzuidhof/coi-serviceworker */
+if (typeof window === "undefined") {
     self.addEventListener("install", () => self.skipWaiting());
     self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
@@ -9,30 +9,33 @@ if (typeof window === 'undefined') {
         }
 
         event.respondWith(
-            fetch(event.request).then((response) => {
-                if (response.status === 0) {
-                    return response;
-                }
+            fetch(event.request)
+                .then((response) => {
+                    if (response.status === 0) {
+                        return response;
+                    }
 
-                const newHeaders = new Headers(response.headers);
-                newHeaders.set("Cross-Origin-Embedder-Policy", "require-corp");
-                newHeaders.set("Cross-Origin-Opener-Policy", "same-origin");
+                    const newHeaders = new Headers(response.headers);
+                    newHeaders.set("Cross-Origin-Embedder-Policy", "require-corp");
+                    newHeaders.set("Cross-Origin-Opener-Policy", "same-origin");
 
-                return new Response(response.body, {
-                    status: response.status,
-                    statusText: response.statusText,
-                    headers: newHeaders,
-                });
-            })
+                    return new Response(response.body, {
+                        status: response.status,
+                        statusText: response.statusText,
+                        headers: newHeaders,
+                    });
+                })
+                .catch((e) => console.error(e))
         );
     });
 } else {
     (() => {
-        const rewriterScript = document.currentScript;
-        const scope = rewriterScript.getAttribute("scope") || "./";
+        const script = document.currentScript;
+        const reload = script.getAttribute("data-reload");
+        if (window.crossOriginIsolated !== false || !reload) return;
 
         if ("serviceWorker" in navigator) {
-            navigator.serviceWorker.register(window.location.pathname + "coi-serviceworker.js", { scope }).then(
+            navigator.serviceWorker.register(window.location.pathname + "coi-serviceworker.js").then(
                 (registration) => {
                     registration.addEventListener("updatefound", () => {
                         window.location.reload();
@@ -43,18 +46,9 @@ if (typeof window === 'undefined') {
                     }
                 },
                 (err) => {
-                    console.error("COI-ServiceWorker registration failed: ", err);
+                    console.error("COI service worker registration failed", err);
                 }
             );
-        }
-
-        if (window.crossOriginIsolated !== undefined && !window.crossOriginIsolated) {
-            const outputPath = window.location.pathname;
-            const isInsideIframe = window.parent !== window;
-            if (!isInsideIframe) {
-                // If we're not isolated, but we're the top-level window, we might need a reload
-                // once the SW is active.
-            }
         }
     })();
 }
