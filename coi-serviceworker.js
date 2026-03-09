@@ -31,11 +31,12 @@ if (typeof window === "undefined") {
 } else {
     (() => {
         const script = document.currentScript;
-        const reload = script.getAttribute("data-reload");
-        if (window.crossOriginIsolated !== false || !reload) return;
+        if (window.crossOriginIsolated) return;
 
         if ("serviceWorker" in navigator) {
-            navigator.serviceWorker.register(window.location.pathname + "coi-serviceworker.js").then(
+            const base = script.getAttribute("data-coi-base") || "/";
+            const swPath = (base + "coi-serviceworker.js").replace(/\/+/g, "/");
+            navigator.serviceWorker.register(swPath).then(
                 (registration) => {
                     registration.addEventListener("updatefound", () => {
                         window.location.reload();
