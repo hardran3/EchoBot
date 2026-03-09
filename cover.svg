@@ -1,0 +1,49 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <!-- Sky -->
+  <rect width="1200" height="630" fill="#0f172a" />
+  <defs>
+    <linearGradient id="skyGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e293b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0f172a;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#skyGradient)" />
+
+  <!-- Distant Mountains -->
+  <polygon points="400,630 700,250 1000,630" fill="#1e3a8a" opacity="0.5" />
+  <polygon points="100,630 450,200 800,630" fill="#1e40af" opacity="0.6" />
+  
+  <!-- Main Mountains -->
+  <polygon points="-100,630 300,150 700,630" fill="#2563eb" />
+  <polygon points="200,150 260,220 340,220 300,150" fill="#f8fafc" /> <!-- Snow Cap 1 -->
+  
+  <polygon points="500,630 850,180 1200,630" fill="#3b82f6" />
+  <polygon points="800,230 850,180 900,230" fill="#f8fafc" /> <!-- Snow Cap 2 -->
+
+  <polygon points="800,630 1050,300 1300,630" fill="#1d4ed8" />
+  <polygon points="1010,350 1050,300 1090,350" fill="#f8fafc" /> <!-- Snow Cap 3 -->
+
+  <!-- Foreground Ground -->
+  <rect y="550" width="1200" height="80" fill="#020617" />
+
+  <!-- Trees -->
+  <!-- Tree 1 -->
+  <rect x="150" y="520" width="10" height="40" fill="#451a03" />
+  <polygon points="120,530 155,450 190,530" fill="#064e3b" />
+  <polygon points="130,490 155,420 180,490" fill="#065f46" />
+  
+  <!-- Tree 2 -->
+  <rect x="220" y="540" width="8" height="30" fill="#451a03" />
+  <polygon points="200,550 224,480 248,550" fill="#064e3b" />
+  <polygon points="205,510 224,460 243,510" fill="#065f46" />
+
+  <!-- Tree 3 (Right side) -->
+  <rect x="950" y="510" width="12" height="50" fill="#451a03" />
+  <polygon points="910,520 956,430 1000,520" fill="#064e3b" />
+  <polygon points="920,470 956,390 990,470" fill="#065f46" />
+
+  <!-- Logo/Text Overlay -->
+  <circle cx="600" cy="315" r="80" fill="#10b981" opacity="0.1" />
+  <text x="600" y="335" font-family="Arial, sans-serif" font-size="80" font-weight="bold" fill="white" text-anchor="middle" letter-spacing="2">ECHOBOT</text>
+  <text x="600" y="370" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="#10b981" text-anchor="middle" letter-spacing="5" opacity="0.8">ON-DEVICE NOSTR AI</text>
+</svg>
